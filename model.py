@@ -42,12 +42,34 @@ and what this model does
 
 '''
 from keras.models import Sequential
-from keras.layers import Flatten, Dense, Lambda, Cropping2D
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D
 
 model = Sequential()
 model.add(Lambda(lambda x: x/255.5 - 0.5, input_shape=(160, 320, 3)))
+
 model.add(Cropping2D(((50,20),(0,0)), input_shape=(160,320,3)))
-s = input("Lucas here!!")
+
+model.add(Conv2D(24, kernel_size=(5, 5), strides=(1, 1),
+                 activation='relu'))
+
+model.add(Conv2D(36, kernel_size=(5, 5), strides=(1, 1),
+                 activation='relu'  ))
+
+model.add(Conv2D(48, kernel_size=(5, 5), strides=(1, 1),
+                 activation='relu'))
+
+model.add(Conv2D(64, kernel_size=(3, 3), strides=(2,2),
+                 activation='relu'))
+model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2),
+                 activation='relu'))
+model.add(Flatten())
+#model.add(Dense(1124, activation='relu'))
+
+model.add(Dense(100, activation='relu'))
+model.add(Dense(50, activation='relu'))
+model.add(Dense(10, activation='relu'))
+
+#output the steering angle
 model.add(Dense(1))
 
 model.compile(loss='mse', optimizer='adam')
