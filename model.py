@@ -5,27 +5,15 @@ from keras.backend import tf as ktf
 from keras.preprocessing.image import ImageDataGenerator
 import time
 import tensorflow as tf
-#Commandline input if we want a histogram of steering angles
 import sys
 import cv2
 import numpy as np
 import csv
 
 EPOCHS = 7
-STEER_CORRECTION = .2
+STEER_CORRECTION = .25
 
-'''
-training_file = "train.p"
-validation_file= "valid.p"
-testing_file = "test.p"
 
-with open(training_file, mode='rb') as f:
-    train = pickle.load(f)
-with open(validation_file, mode='rb') as f:
-    valid = pickle.load(f)
-with open(testing_file, mode='rb') as f:
-    test = pickle.load(f)
-'''
 
 #starts out at 160 x 320
 height = 160
