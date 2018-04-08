@@ -9,7 +9,8 @@ import sys
 import cv2
 import numpy as np
 import csv
-
+import random
+from math import isclose
 EPOCHS = 7
 STEER_CORRECTION = .25
 
@@ -21,53 +22,94 @@ width = 320
 NEW_HEIGHT = 120
 NEW_WIDTH = 240
 num_channels = 3
+PERCENTAGE_FLIPPED = .7
+BRIGHTNESS_CHANGES = .6
 
-lines = []
-
+data = []
 with open('./data/driving_log.csv') as csv_in:
 	reader = csv.reader(csv_in)
 	for line in reader:
-		lines.append(line)
+		data.append(line)
 
-lines = lines
+def flipImages(images, steering_angle):
+    flipped = np.copy(np.fliplr(images))   
+    return (flipped, -1 * steering_angle)
 
-images = []
-steering_angles = []
-for line in lines:
-	
-	centImage_path = line[0].split('\\')[-1]
-	leftImage_path = line[1].split('\\')[-1]
-	righImage_path = line[2].split('\\')[-1]
-	
-	#current_path = './data/IMG/' + filename
-	#cv2.imread reads it in as BGR...
-	center_image = cv2.imread('./data/IMG/' + centImage_path)
-	left_image   = cv2.imread('./data/IMG/' + leftImage_path)
-	right_image  = cv2.imread('./data/IMG/' + righImage_path)
-	image_flipped = np.copy(np.fliplr(center_image))
-	
-	images.extend((center_image, left_image, right_image, image_flipped))	
-	
-	steering_angle = float(line[3])
-	
-	#add a correction var?
-	steering_angle_flipped = -steering_angle
-	left_steering_angle = steering_angle + STEER_CORRECTION
-	right_steering_angle = steering_angle - STEER_CORRECTION
-	steering_angles.extend( (steering_angle,left_steering_angle,right_steering_angle,steering_angle_flipped) )
-image = [cv2.cvtColor(i, cv2.COLOR_BGR2RGB) for i in images]
+def change_brightness(image):
+    img = np.copy(image)
+    image1 = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+    # uniform means all outcomes equally likely, 
+    # defaults to [0,1)
+    random_bright = .25 + np.random.uniform()
+    #print(random_bright)
+    image1[:,:,2] = image1[:,:,2]*random_bright
+    image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2RGB)
+    return image1
+
+def readDataIn(data):
+    images = []
+    steering_angles = []
+    
+    for i in range(1,len(data)):
+        
+        data_point = data[i]
+
+        name = './data/IMG/'+ data_point[0].split('/')[-1]
+        left = './data/IMG/'+ data_point[1].split('/')[-1]
+        righ = './data/IMG/'+ data_point[2].split('/')[-1]
+        
+        #print(len(images), name)
+        if name == "./data/IMG/center":
+            continue
+            
+        center_image = cv2.cvtColor(cv2.imread(name), cv2.COLOR_BGR2RGB)
+        left_image  = cv2.cvtColor(cv2.imread(left), cv2.COLOR_BGR2RGB)
+        right_image = cv2.cvtColor(cv2.imread(righ), cv2.COLOR_BGR2RGB)
+
+        #steering angles
+        center_angle = float(data_point[3])
+        left_angle = float(data_point[3]) + STEER_CORRECTION
+        right_angle = float(data_point[3]) - STEER_CORRECTION
+        
+        coinFlip = random.random()
+        if isclose(center_angle, 0.0):
+            if coinFlip > .7:
+                images.extend( (center_image,left_image, right_image ) )
+                steering_angles.extend( (center_angle, left_angle, right_angle) )
+        else:
+            images.extend( (center_image,left_image, right_image ) )
+            steering_angles.extend( (center_angle, left_angle, right_angle) )
+
+        if coinFlip < PERCENTAGE_FLIPPED:
+            flipcenter = flipImages(center_image,center_angle)
+            flipleft = flipImages(left_image,left_angle)
+            flipright = flipImages(right_image,right_angle)
+
+            images.append(flipcenter[0])
+            steering_angles.append(flipcenter[1])
+
+            images.append(flipleft[0])
+            steering_angles.append(flipleft[1])
+
+            images.append(flipright[0])
+            steering_angles.append(flipright[1])
+        if coinFlip < BRIGHTNESS_CHANGES:
+            img_left_bright = change_brightness(left_image)
+            img_right_bright = change_brightness(right_image)
+
+            images.append(img_left_bright)
+            steering_angles.append(left_angle)
+
+            images.append(img_right_bright)
+            steering_angles.append(right_angle)
+      
+    return [images, steering_angles]
+
+print("got here..")    
+images, steering_angles = readDataIn(data)
 X_train = np.array(images)
 y_train = np.array(steering_angles)
-
-'''
-'''
-from matplotlib import pyplot
-x = np.arange(-1.5, 1.5, .01)
-pyplot.hist(y_train,x)
-pyplot.title('Steering Angles Histogram')
-pyplot.show()
-
-p = input("graph")
+print("data uploaded", len(X_train))
 
 '''
 
@@ -101,8 +143,7 @@ def generator(samples, batch_size=32):
 # compile and train the model using the generator function
 '''
 
-train_generator = generator(train_samples, batch_size=32)
-validation_generator = generator(validation_samples, batch_size=32)
+
 def my_resize_function(images):
     from keras.backend import tf as ktf
     return ktf.image.resize_images(images, (96,96))
@@ -125,18 +166,16 @@ model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2),
 model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2),
                  activation='elu'  ))
 
-'''
 model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2),
-                 activation='elu'))
+                 activation=ACTIVATION_FUNCTION))
 
 model.add(Conv2D(64, kernel_size=(3, 3), strides=(2,2),
-                 activation='elu'))
-'''
+                 activation=ACTIVATION_FUNCTION))
 model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2),
-                 activation='elu'))
+                 activation=ACTIVATION_FUNCTION))
 model.add(Flatten())
-#model.add(Dense(1124, activation='elu'))
 
+model.add(Dense(1184, activation=ACTIVATION_FUNCTION))
 model.add(Dense(100, activation='elu'))
 model.add(Dense(50, activation='elu'))
 model.add(Dense(10, activation='elu'))
