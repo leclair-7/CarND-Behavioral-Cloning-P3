@@ -48,6 +48,22 @@ set_speed = 9
 controller.set_desired(set_speed)
 
 
+def preprocess_image(image):
+    '''
+    crop
+    resize 200 across 66 up/down
+    convert to YUV
+    '''
+    print(image.shape)
+    x,w = 25,image.shape[1]-25    
+    #left to cut off, right to cut off
+    y,h = 65, (image.shape[0] - 90)
+    image = np.copy(image[y:y+h, x:x+w])
+    print(image.shape)
+    porky=input()
+    image = cv2.resize(image, (200,66) )
+    return cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
+
 @sio.on('telemetry')
 def telemetry(sid, data):
     if data:
@@ -61,6 +77,9 @@ def telemetry(sid, data):
         imgString = data["image"]
         image = Image.open(BytesIO(base64.b64decode(imgString)))
         image_array = np.asarray(image)
+
+        image = preprocess_image(image_array)
+
         steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
 
         throttle = controller.update(float(speed))

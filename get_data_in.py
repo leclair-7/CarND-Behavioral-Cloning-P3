@@ -28,7 +28,7 @@ NEW_WIDTH = 66
 NEW_HEIGHT = 200
 
 num_channels = 3
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 EPOCHS = 3
 ACTIVATION_FUNCTION = 'elu'
 
@@ -52,6 +52,21 @@ def change_brightness(image):
     image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2RGB)
     return image1
 
+def preprocess_image(image):
+    '''
+    crop
+    resize 200 across 66 up/down
+    convert to YUV
+    '''
+    print(image.shape)
+    x,w = 25,image.shape[1]-25    
+    #left to cut off, right to cut off
+    y,h = 65, (image.shape[0] - 90)
+    image = np.copy(image[y:y+h, x:x+w])
+    print(image.shape)
+    porky=input()
+    image = cv2.resize(image, (200,66) )
+    return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
 
 train_samples, validation_samples = train_test_split(data, test_size=0.2)
 
@@ -150,8 +165,10 @@ model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2),
 model.add(Conv2D(64, kernel_size=(3, 3), strides=(2,2),
                  activation=ACTIVATION_FUNCTION))
 '''
+'''
 model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2),
                  activation=ACTIVATION_FUNCTION))
+'''
 model.add(Flatten())
 
 #model.add(Dense(1184, activation=ACTIVATION_FUNCTION))
