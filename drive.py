@@ -60,7 +60,7 @@ def preprocess_image(image):
     y,h = 65, (image.shape[0] - 90)
     image = image[y:y+h, x:x+w]
     #print(image.shape)
-    image = cv2.resize(image, (200,66) )
+    image = cv2.resize(image, (64,64) )
     return cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
 
 @sio.on('telemetry')
@@ -77,8 +77,7 @@ def telemetry(sid, data):
         image = Image.open(BytesIO(base64.b64decode(imgString)))
         
         image_array = np.asarray(image)
-        image_array = preprocess_image(image_array)
-        
+        image_array = preprocess_image(image_array)       
 
 
         steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))

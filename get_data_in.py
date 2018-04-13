@@ -6,12 +6,12 @@ import numpy as np
 import cv2
 
 from keras.models import Sequential
-from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D, Dropout
 from keras.backend import tf as ktf
 from keras.preprocessing.image import ImageDataGenerator
 
 import tensorflow as tf
-
+from keras.optimizers import Adam
 from sklearn.model_selection import train_test_split
 import sklearn
 from sklearn.utils import shuffle
@@ -29,7 +29,7 @@ NEW_HEIGHT = 200
 
 num_channels = 3
 BATCH_SIZE = 128
-EPOCHS = 3
+EPOCHS = 2
 ACTIVATION_FUNCTION = 'elu'
 
 
@@ -61,7 +61,7 @@ def preprocess_image(image):
     image = np.copy(image[y:y+h, x:x+w])
 
     #print(image.shape)
-    image = cv2.resize(image, (200,66) )
+    image = cv2.resize(image, (64,64) )
     return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
 
 
@@ -85,8 +85,9 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 print(batch_sample)
                 p=input()
                 '''
-                an_image = cv2.cvtColor(cv2.imread(batch_samples[bs]), cv2.COLOR_BGR2RGB)
-                
+                an_image = cv2.imread(batch_samples[bs])
+                an_image = preprocess_image(an_image)
+
                 images.append(  an_image  )
                 steering_angles.append( batch_tags[bs] )
                 
@@ -156,25 +157,28 @@ train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
 validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
 
 model = Sequential()
-model.add(Lambda(lambda x: x/255.5 - 0.5, input_shape=(height, width, 3)))
+#66,100
+model.add(Lambda(lambda x: x/255.5 - 0.5, input_shape=(64,64, 3)))
 
 model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
 model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION  ))
-model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+#model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
 
-model.add(Conv2D(64, kernel_size=(3, 3), strides=(2,2), activation=ACTIVATION_FUNCTION))
+#model.add(Conv2D(64, kernel_size=(3, 3), strides=(2,2), activation=ACTIVATION_FUNCTION))
 model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
 
 model.add(Flatten())
 
 model.add(Dense(100, activation=ACTIVATION_FUNCTION))
+model.add(Dropout(0.5))
 model.add(Dense(50, activation=ACTIVATION_FUNCTION))
+model.add(Dropout(0.5))
 model.add(Dense(10, activation=ACTIVATION_FUNCTION))
 
 #output layer... important !
 model.add(Dense(1))
 
-model.compile(loss='mse', optimizer='adam')
+model.compile(loss='mse', optimizer=Adam(lr=1e-4))
 
 #model.fit(X_train, y_train, validation_split=.2,shuffle=True, epochs=EPOCHS, verbose=1)
 
