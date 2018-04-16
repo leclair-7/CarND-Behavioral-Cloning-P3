@@ -1,35 +1,43 @@
-
-from keras.models import Sequential
-from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D
-from keras.backend import tf as ktf
-from keras.preprocessing.image import ImageDataGenerator
-import time
-import tensorflow as tf
-import sys
-import cv2
-import numpy as np
-import csv
-import random
+import os, datetime, time, csv
 from math import isclose
-EPOCHS = 7
+import random, importlib
+
+import numpy as np
+import cv2
+
+import tensorflow as tf
+
+from keras.models import Sequential, load_model, model_from_json
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D, Dropout
+from keras.callbacks import ModelCheckpoint
+from keras.optimizers import Adam
+
+import sklearn
+from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
+
 STEER_CORRECTION = .25
+PERCENTAGE_FLIPPED = .8
+BRIGHTNESS_CHANGES = .8
+BATCH_SIZE = 128
+EPOCHS = 3
+ACTIVATION_FUNCTION = 'elu'
 
+def bing():
+    '''
+    Function makes a sound - to be used when model training/testing is complete
 
-
-#starts out at 160 x 320
-height = 160
-width = 320
-NEW_HEIGHT = 120
-NEW_WIDTH = 240
-num_channels = 3
-PERCENTAGE_FLIPPED = .7
-BRIGHTNESS_CHANGES = .6
-
-data = []
-with open('./data/driving_log.csv') as csv_in:
-	reader = csv.reader(csv_in)
-	for line in reader:
-		data.append(line)
+    This is actually crucial for a busy person, start the NN training, and then this function
+    is called (and makes the sound) when training's done
+    '''
+    pygame_spec = importlib.util.find_spec('pygame')
+    if pygame_spec is not None:
+        import pygame
+        pygame.mixer.init()
+        soundObj = pygame.mixer.Sound('beep1.ogg')
+        soundObj.play()
+        time.sleep(2)
+        soundObj.stop()
 
 def flipImages(images, steering_angle):
     flipped = np.copy(np.fliplr(images))   
@@ -38,176 +46,220 @@ def flipImages(images, steering_angle):
 def change_brightness(image):
     img = np.copy(image)
     image1 = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+    image1 = np.array(image1,dtype=np.float64)
     # uniform means all outcomes equally likely, 
     # defaults to [0,1)
-    random_bright = .25 + np.random.uniform()
+    random_bright = .4 + np.random.uniform()
     #print(random_bright)
     image1[:,:,2] = image1[:,:,2]*random_bright
+    # Data conversion and array slicing schemes -> Reference: the amazing Vivek Yadav
+    # https://chatbotslife.com/using-augmentation-to-mimic-human-driving-496b569760a9
+    #(np slicing) --> Put any pixel that was made greater than 255 back to 255
+    image1[:,:,2][image1[:,:,2]>255]  = 255
+    image1 = np.array(image1, dtype = np.uint8)
     image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2RGB)
     return image1
 
-def readDataIn(data):
-    images = []
-    steering_angles = []
+def preprocess_image(image):
+    '''
+    This function does the following:
+    1 - crop
+    2 - resize 200 across 66 up/down
+    3 - converts to YUV
+    '''
+    x,w = 25,image.shape[1]-25    
+    #left to cut off, right to cut off
+    y,h = 65, (image.shape[0] - 90)
+    image = np.copy(image[y:y+h, x:x+w])
+    image = cv2.GaussianBlur(image, (3,3), 0)    
+    image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
+    return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+
+def generator(samples, tags, batch_size=BATCH_SIZE):
     
-    for i in range(1,len(data)):
-        
-        data_point = data[i]
+    samples, tags = shuffle(samples, tags)
 
-        name = './data/IMG/'+ data_point[0].split('/')[-1]
-        left = './data/IMG/'+ data_point[1].split('/')[-1]
-        righ = './data/IMG/'+ data_point[2].split('/')[-1]
-        
-        #print(len(images), name)
-        if name == "./data/IMG/center":
-            continue
+    assert len(samples) == len(tags)
+    
+    while 1:
+
+        for offset in range(0, len(samples), batch_size):
+
+            batch_samples, batch_tags = samples[offset:offset+batch_size], tags[offset:offset+batch_size]
             
-        center_image = cv2.cvtColor(cv2.imread(name), cv2.COLOR_BGR2RGB)
-        left_image  = cv2.cvtColor(cv2.imread(left), cv2.COLOR_BGR2RGB)
-        right_image = cv2.cvtColor(cv2.imread(righ), cv2.COLOR_BGR2RGB)
-
-        #steering angles
-        center_angle = float(data_point[3])
-        left_angle = float(data_point[3]) + STEER_CORRECTION
-        right_angle = float(data_point[3]) - STEER_CORRECTION
-        
-        coinFlip = random.random()
-        if isclose(center_angle, 0.0):
-            if coinFlip > .7:
-                images.extend( (center_image,left_image, right_image ) )
-                steering_angles.extend( (center_angle, left_angle, right_angle) )
-        else:
-            images.extend( (center_image,left_image, right_image ) )
-            steering_angles.extend( (center_angle, left_angle, right_angle) )
-
-        if coinFlip < PERCENTAGE_FLIPPED:
-            flipcenter = flipImages(center_image,center_angle)
-            flipleft = flipImages(left_image,left_angle)
-            flipright = flipImages(right_image,right_angle)
-
-            images.append(flipcenter[0])
-            steering_angles.append(flipcenter[1])
-
-            images.append(flipleft[0])
-            steering_angles.append(flipleft[1])
-
-            images.append(flipright[0])
-            steering_angles.append(flipright[1])
-        if coinFlip < BRIGHTNESS_CHANGES:
-            img_left_bright = change_brightness(left_image)
-            img_right_bright = change_brightness(right_image)
-
-            images.append(img_left_bright)
-            steering_angles.append(left_angle)
-
-            images.append(img_right_bright)
-            steering_angles.append(right_angle)
-      
-    return [images, steering_angles]
-
-print("got here..")    
-images, steering_angles = readDataIn(data)
-X_train = np.array(images)
-y_train = np.array(steering_angles)
-print("data uploaded", len(X_train))
-
-'''
-
-#X_train = [ktf.image.resize_images(image, (NEW_HEIGHT, NEW_WIDTH) ) for image in images]
-
-#lucas = input()
-
-import sklearn
-
-def generator(samples, batch_size=32):
-    num_samples = len(samples)
-    while 1: # Loop forever so the generator never terminates
-        shuffle(samples)
-        for offset in range(0, num_samples, batch_size):
-            batch_samples = samples[offset:offset+batch_size]
-
             images = []
-            angles = []
-            for batch_sample in batch_samples:
-                name = './IMG/'+batch_sample[0].split('/')[-1]
-                center_image = cv2.imread(name)
-                center_angle = float(batch_sample[3])
-                images.append(center_image)
-                angles.append(center_angle)
+            steering_angles = []
 
-            # trim image to only see section with road
-            X_train = np.array(images)
-            y_train = np.array(angles)
-            yield sklearn.utils.shuffle(X_train, y_train)
+            for bs in range(len(batch_samples)):
+                '''
+                print(batch_sample)
+                p=input()
+                '''
+                an_image = cv2.imread(batch_samples[bs])
+                
+                an_image = preprocess_image(an_image)
 
-# compile and train the model using the generator function
+                images.append(  an_image  )
+                steering_angles.append( batch_tags[bs] )
+                
+                if len(images) >= BATCH_SIZE:
+                    break
+
+                #lets magnify 
+                if abs(batch_tags[bs]) > .2:
+                    flipped_image,flipped_angle = flipImages(an_image,batch_tags[bs] )                    
+                    
+                    images.append( flipped_image )
+                    steering_angles.append( flipped_angle )
+                
+                if len(images) >= BATCH_SIZE:
+                    break
+
+                #if coinFlip < BRIGHTNESS_CHANGES:
+                brightness_changed_image = change_brightness(an_image)                    
+                images.append( brightness_changed_image  )
+                steering_angles.append( batch_tags[bs] )
+            
+            images = np.array(images)
+            steering_angles = np.array(steering_angles)
+
+            if len(images) >= BATCH_SIZE:
+                yield images[:BATCH_SIZE], steering_angles[:BATCH_SIZE]
+                samples, tags = shuffle(samples, tags)
+
+def make_model():
+    model = Sequential()
+    #normalize and set input shape
+    model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
+
+    model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    #model.add(MaxPooling2D())
+    model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION  ))
+    #model.add(MaxPooling2D())
+    model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    #model.add(MaxPooling2D())
+    #model.add(Dropout(.5))
+    model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    
+    model.add(Flatten())
+
+    model.add(Dense(100, activation=ACTIVATION_FUNCTION))
+    model.add(Dropout(0.5))
+    model.add(Dense(50, activation=ACTIVATION_FUNCTION))
+    model.add(Dropout(0.5))
+    model.add(Dense(10, activation=ACTIVATION_FUNCTION))
+
+    #output layer... important !
+    model.add(Dense(1))
+    model.compile(loss='mse', optimizer=Adam(lr=1e-4), metrics=['accuracy'])
+    return model
+
+fp1 = './data/driving_log.csv'
+fp2 = './recovery_data/driving_log.csv'
+data = []
+
+using_custom = True
+
+fileToUpload = fp2 if using_custom else fp1
+with open(fileToUpload) as csvfile:
+    reader = csv.reader(csvfile)
+    for line in reader:
+        data.append(line)
+
+image_paths = []
+steering_angles = []
+
+for img_file_label in data:    
+       
+    if using_custom:
+        center = img_file_label[0].split('/')[-1]
+        left = img_file_label[1].split('/')[-1]
+        right = img_file_label[2].split('/')[-1]
+    else:
+        center = './data/IMG/'+ img_file_label[0].split('/')[-1]
+        left = './data/IMG/'+ img_file_label[1].split('/')[-1]
+        right = './data/IMG/'+ img_file_label[2].split('/')[-1]
+
+    '''
+    print(center)
+    print(left)
+    print(right)
+    pause = input()
+    '''
+    
+    if center == "./data/IMG/center":
+        continue
+
+    center_angle = float(img_file_label[3])
+    left_angle = float(img_file_label[3]) + STEER_CORRECTION
+    right_angle = float(img_file_label[3]) - STEER_CORRECTION
+    
+    coinFlip = random.random()
+    if isclose(center_angle, 0.0):
+        if coinFlip > .85:
+            image_paths.extend( (center,left, right ) )
+            steering_angles.extend( (center_angle, left_angle, right_angle) )
+    else:
+        image_paths.extend( (center,left, right ) )
+        steering_angles.extend( (center_angle, left_angle, right_angle) )
+    
+image_paths = np.array(image_paths)
+steering_angles = np.array(steering_angles)
+
+train_samples, test_samples, train_angles, test_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
+
+train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
+validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
+
+model = load_model("model_udacity_data.h5")
+#model = make_model()
+
+'''
+filepath = "weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
+checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True)
+callbacks_list = [checkpoint]
+'''
+'''
+load with:
+(construct the model...)
+model.load_weights("weights.best.hdf5")
+'''
+'''
+def coolfunc():
+    for i in range(2):
+        if i ==0:
+            EPOCHS = 5
+        elif i==1:
+            EPOCHS = 5
+            model = load_model('model_blur_5_epochs_1.h5')
+
+        model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
+        epochs=EPOCHS, \
+        validation_data=validation_generator, validation_steps=len(test_samples)//BATCH_SIZE,\
+        verbose = 1
+         )
+
+        if i ==0:
+            model.save('model_blur_5_epochs_2_with_recovery.h5')
+        elif i==1:
+            model.save("model_blur_5_epochs_2_with_recovery.h5")
+        bing()
 '''
 
-
-def my_resize_function(images):
-    from keras.backend import tf as ktf
-    return ktf.image.resize_images(images, (96,96))
-
-model = Sequential()
-model.add(Lambda(lambda x: x/255.5 - 0.5, input_shape=(height, width, 3)))
-
-model.add(Cropping2D(((50,10),(0,0)), input_shape=(height,width,3)))
-
-#model.add(Lambda(lambda x: cv2.resize(x, (NEW_HEIGHT, NEW_WIDTH)) ) )
-#, input_shape=(num_channels, height, width), output_shape=(ch, new_height, new_width))
-
-#model.add(Lambda(lambda x: ImageDataGenerator(x, )))
-#model.add(Lambda(lambda image: tf.image.resize_images(image, (NEW_HEIGHT, NEW_WIDTH))))
-model.add(Lambda(my_resize_function))
-
-model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2),
-                 activation='elu'))
-
-model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2),
-                 activation='elu'  ))
-
-model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2),
-                 activation=ACTIVATION_FUNCTION))
-
-model.add(Conv2D(64, kernel_size=(3, 3), strides=(2,2),
-                 activation=ACTIVATION_FUNCTION))
-model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2),
-                 activation=ACTIVATION_FUNCTION))
-model.add(Flatten())
-
-model.add(Dense(1184, activation=ACTIVATION_FUNCTION))
-model.add(Dense(100, activation='elu'))
-model.add(Dense(50, activation='elu'))
-model.add(Dense(10, activation='elu'))
-
-#output the steering angle
-model.add(Dense(1))
-
-model.compile(loss='mse', optimizer='adam')
-model.fit(X_train, y_train, validation_split=.2,shuffle=True, epochs=EPOCHS, verbose=1)
-
-model.save('model.h5')
-
-
+model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
+        epochs=EPOCHS, \
+        validation_data=validation_generator, validation_steps=len(test_samples)//BATCH_SIZE,\
+        verbose = 1
+         )
+model.save('model_udacity_data_and_recov.h5')
 '''
-import matplotlib.pyplot as plt
+model_json = model.to_json()
+timestamp = datetime.datetime.now().strftime('%m-%d-%Y__%H-%M%p')
+model_filename = "model" + timestamp + ".json"
+with open(model_filename,'w') as json_file:
+    json_file.write(model_json)
 
-history_object = model.fit_generator(train_generator, samples_per_epoch =
-    len(X_train), validation_data = 
-    validation_generator,
-    nb_val_samples = len(validation_samples), 
-    nb_epoch=5, verbose=1)
-
-
-### print the keys contained in the history object
-print(history_object.history.keys())
-
-### plot the training and validation loss for each epoch
-plt.plot(history_object.history['loss'])
-plt.plot(history_object.history['val_loss'])
-plt.title('model mean squared error loss')
-plt.ylabel('mean squared error loss')
-plt.xlabel('epoch')
-plt.legend(['training set', 'validation set'], loc='upper right')
-plt.show()
+weights_filename = "model" + timestamp + ".h5"
+model.save_weights(weights_filename)
 '''
+

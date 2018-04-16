@@ -44,9 +44,8 @@ class SimplePIController:
 
 
 controller = SimplePIController(0.1, 0.002)
-set_speed = 9
+set_speed = 15
 controller.set_desired(set_speed)
-
 
 def preprocess_image(image):
     '''
@@ -60,7 +59,8 @@ def preprocess_image(image):
     y,h = 65, (image.shape[0] - 90)
     image = image[y:y+h, x:x+w]
     #print(image.shape)
-    image = cv2.resize(image, (64,64) )
+    image = cv2.GaussianBlur(image, (3,3), 0)
+    image = cv2.resize(image, (64,64), interpolation=cv2.INTER_AREA)
     return cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
 
 @sio.on('telemetry')
