@@ -8,7 +8,7 @@ import cv2
 import tensorflow as tf
 
 from keras.models import Sequential, load_model, model_from_json
-from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D, Dropout
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D, Dropout, MaxPooling2D
 from keras.callbacks import ModelCheckpoint
 from keras.optimizers import Adam
 
@@ -16,12 +16,14 @@ import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 
+# Model parameters 
 STEER_CORRECTION = .25
 PERCENTAGE_FLIPPED = .8
 BRIGHTNESS_CHANGES = .8
 BATCH_SIZE = 128
 EPOCHS = 3
 ACTIVATION_FUNCTION = 'elu'
+PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7
 
 def bing():
     '''
@@ -63,9 +65,10 @@ def change_brightness(image):
 def preprocess_image(image):
     '''
     This function does the following:
-    1 - crop
-    2 - resize 200 across 66 up/down
-    3 - converts to YUV
+    1 - Crops the image
+    2 - Blurs the image slightly
+    3 - Resizes the image to 64 across 64 up/down
+    4 - Converts the image to YUV
     '''
     x,w = 25,image.shape[1]-25    
     #left to cut off, right to cut off
@@ -83,7 +86,7 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
     
     while 1:
 
-        for offset in range(0, len(samples), batch_size):
+        for offset in range(0, len(samples), batch_size):            
 
             batch_samples, batch_tags = samples[offset:offset+batch_size], tags[offset:offset+batch_size]
             
@@ -97,6 +100,7 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 '''
                 an_image = cv2.imread(batch_samples[bs])
                 
+                #crop, blur, resize, convert to YUV
                 an_image = preprocess_image(an_image)
 
                 images.append(  an_image  )
@@ -105,7 +109,7 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 if len(images) >= BATCH_SIZE:
                     break
 
-                #lets magnify 
+                #Adds any image with a  
                 if abs(batch_tags[bs]) > .2:
                     flipped_image,flipped_angle = flipImages(an_image,batch_tags[bs] )                    
                     
@@ -115,7 +119,8 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 if len(images) >= BATCH_SIZE:
                     break
 
-                #if coinFlip < BRIGHTNESS_CHANGES:
+                #Add a copy of each datapoint with different brightness
+                # Helps the car drive in shadow situations and generalize
                 brightness_changed_image = change_brightness(an_image)                    
                 images.append( brightness_changed_image  )
                 steering_angles.append( batch_tags[bs] )
@@ -128,6 +133,9 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 samples, tags = shuffle(samples, tags)
 
 def make_model():
+    '''
+    Outputs the model that we will use to control the car and predict the steering angle
+    '''
     model = Sequential()
     #normalize and set input shape
     model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
@@ -138,7 +146,7 @@ def make_model():
     #model.add(MaxPooling2D())
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    #model.add(Dropout(.5))
+    model.add(Dropout(.5))
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     
     model.add(Flatten())
@@ -154,84 +162,94 @@ def make_model():
     model.compile(loss='mse', optimizer=Adam(lr=1e-4), metrics=['accuracy'])
     return model
 
-fp1 = './data/driving_log.csv'
-fp2 = './recovery_data/driving_log.csv'
-data = []
+def load_train_data(using_custom):
+    fp1 = './data/driving_log.csv'
+    fp2 = './recovery_data/driving_log.csv'
 
-using_custom = True
-
-fileToUpload = fp2 if using_custom else fp1
-with open(fileToUpload) as csvfile:
-    reader = csv.reader(csvfile)
-    for line in reader:
-        data.append(line)
-
-image_paths = []
-steering_angles = []
-
-for img_file_label in data:    
-       
-    if using_custom:
-        center = img_file_label[0].split('/')[-1]
-        left = img_file_label[1].split('/')[-1]
-        right = img_file_label[2].split('/')[-1]
-    else:
-        center = './data/IMG/'+ img_file_label[0].split('/')[-1]
-        left = './data/IMG/'+ img_file_label[1].split('/')[-1]
-        right = './data/IMG/'+ img_file_label[2].split('/')[-1]
-
-    '''
-    print(center)
-    print(left)
-    print(right)
-    pause = input()
-    '''
+    data = []
     
-    if center == "./data/IMG/center":
-        continue
+    fileToUpload = fp2 if using_custom else fp1
+    with open(fileToUpload) as csvfile:
+        reader = csv.reader(csvfile)
+        for line in reader:
+            data.append(line)
 
-    center_angle = float(img_file_label[3])
-    left_angle = float(img_file_label[3]) + STEER_CORRECTION
-    right_angle = float(img_file_label[3]) - STEER_CORRECTION
-    
-    coinFlip = random.random()
-    if isclose(center_angle, 0.0):
-        if coinFlip > .85:
+    image_paths = []
+    steering_angles = []
+
+    for img_file_label in data:    
+           
+        if using_custom:
+            center = img_file_label[0].split('/')[-1]
+            left = img_file_label[1].split('/')[-1]
+            right = img_file_label[2].split('/')[-1]
+        else:
+            center = './data/IMG/'+ img_file_label[0].split('/')[-1]
+            left = './data/IMG/'+ img_file_label[1].split('/')[-1]
+            right = './data/IMG/'+ img_file_label[2].split('/')[-1]
+
+        '''
+        print(center)
+        print(left)
+        print(right)
+        pause = input()
+        '''
+        
+        if center == "./data/IMG/center":
+            continue
+
+        center_angle = float(img_file_label[3])
+        left_angle = float(img_file_label[3]) + STEER_CORRECTION
+        right_angle = float(img_file_label[3]) - STEER_CORRECTION
+        
+        coinFlip = random.random()
+        if isclose(center_angle, 0.0):
+            PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7 if using_custom else .7
+            
+            if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:
+                image_paths.extend( (center,left, right ) )
+                steering_angles.extend( (center_angle, left_angle, right_angle) )
+        else:
             image_paths.extend( (center,left, right ) )
             steering_angles.extend( (center_angle, left_angle, right_angle) )
-    else:
-        image_paths.extend( (center,left, right ) )
-        steering_angles.extend( (center_angle, left_angle, right_angle) )
-    
-image_paths = np.array(image_paths)
-steering_angles = np.array(steering_angles)
+        
+    image_paths = np.array(image_paths)
+    steering_angles = np.array(steering_angles)
 
-train_samples, test_samples, train_angles, test_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
+    return image_paths, steering_angles
 
-train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
-validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
+def train_model():
+    '''
+    This function trains the model and outputs the .h5 file
 
-model = load_model("model_udacity_data.h5")
-#model = make_model()
+    A .h5 file saves the following (from the keras documentation):
+        - the architecture of the model, allowing to re-create the model
+        - the weights of the model
+        - the training configuration (loss, optimizer)
+        - the state of the optimizer, allowing to resume training exactly where you left off
 
-'''
-filepath = "weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
-checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True)
-callbacks_list = [checkpoint]
-'''
-'''
-load with:
-(construct the model...)
-model.load_weights("weights.best.hdf5")
-'''
-'''
-def coolfunc():
+    This function exploits this by saving the model and then training on the custom data.
+    Since this data didn't always load successfully, it's good to save the first model as a checkpoint
+
+    Given the amount of time for training, I have the program make a sound when it's done;
+    a polling mechanism for humans
+    '''
     for i in range(2):
-        if i ==0:
+
+        image_paths, steering_angles = None, None
+
+        if i == 0:
             EPOCHS = 5
-        elif i==1:
-            EPOCHS = 5
-            model = load_model('model_blur_5_epochs_1.h5')
+            image_paths, steering_angles = load_train_data(False)
+            model = make_model()
+        elif i == 1:
+            EPOCHS = 3
+            image_paths, steering_angles = load_train_data(True)
+            model = load_model('model_udacity_only.h5')
+
+        train_samples, test_samples, train_angles, test_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
+        train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
+        validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
 
         model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
         epochs=EPOCHS, \
@@ -240,26 +258,10 @@ def coolfunc():
          )
 
         if i ==0:
-            model.save('model_blur_5_epochs_2_with_recovery.h5')
+            model.save('model_udacity_only.h5')
         elif i==1:
-            model.save("model_blur_5_epochs_2_with_recovery.h5")
-        bing()
-'''
+            model.save("model.h5")
+    bing()     
 
-model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
-        epochs=EPOCHS, \
-        validation_data=validation_generator, validation_steps=len(test_samples)//BATCH_SIZE,\
-        verbose = 1
-         )
-model.save('model_udacity_data_and_recov.h5')
-'''
-model_json = model.to_json()
-timestamp = datetime.datetime.now().strftime('%m-%d-%Y__%H-%M%p')
-model_filename = "model" + timestamp + ".json"
-with open(model_filename,'w') as json_file:
-    json_file.write(model_json)
-
-weights_filename = "model" + timestamp + ".h5"
-model.save_weights(weights_filename)
-'''
-
+if __name__=='__main__':    
+    train_model()
