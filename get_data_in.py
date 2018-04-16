@@ -20,7 +20,7 @@ STEER_CORRECTION = .25
 PERCENTAGE_FLIPPED = .8
 BRIGHTNESS_CHANGES = .8
 BATCH_SIZE = 128
-EPOCHS = 5
+EPOCHS = 3
 ACTIVATION_FUNCTION = 'elu'
 
 def bing():
@@ -46,11 +46,17 @@ def flipImages(images, steering_angle):
 def change_brightness(image):
     img = np.copy(image)
     image1 = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+    image1 = np.array(image1,dtype=np.float64)
     # uniform means all outcomes equally likely, 
     # defaults to [0,1)
-    random_bright = .25 + np.random.uniform()
+    random_bright = .4 + np.random.uniform()
     #print(random_bright)
     image1[:,:,2] = image1[:,:,2]*random_bright
+    # Data conversion and array slicing schemes -> Reference: the amazing Vivek Yadav
+    # https://chatbotslife.com/using-augmentation-to-mimic-human-driving-496b569760a9
+    #(np slicing) --> Put any pixel that was made greater than 255 back to 255
+    image1[:,:,2][image1[:,:,2]>255]  = 255
+    image1 = np.array(image1, dtype = np.uint8)
     image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2RGB)
     return image1
 
@@ -65,8 +71,8 @@ def preprocess_image(image):
     #left to cut off, right to cut off
     y,h = 65, (image.shape[0] - 90)
     image = np.copy(image[y:y+h, x:x+w])
-    image = cv2.GaussianBlur(image, (3,3), 0)
-    image = cv2.resize(image, (64,64) )
+    image = cv2.GaussianBlur(image, (3,3), 0)    
+    image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
     return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
 
 def generator(samples, tags, batch_size=BATCH_SIZE):
@@ -124,22 +130,20 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
 def make_model():
     model = Sequential()
     #normalize and set input shape
-    model.add(Lambda(lambda x: x/255.5 - 0.5, input_shape=(64,64, 3)))
+    model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
 
     model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
-    
+    #model.add(MaxPooling2D())
     model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION  ))
-    
-    #model.add(Conv2D(48, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION  ))
-
+    #model.add(MaxPooling2D())
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
-    
+    #model.add(MaxPooling2D())
+    #model.add(Dropout(.5))
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     
     model.add(Flatten())
 
     #model.add(Dense(500, activation=ACTIVATION_FUNCTION))
-
     model.add(Dense(100, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
     model.add(Dense(50, activation=ACTIVATION_FUNCTION))
@@ -153,10 +157,10 @@ def make_model():
 
 fp1 = './data/driving_log.csv'
 #fp2 = './custom_data/driving_log.csv'
-fp2 = './custom_data/driving_log.csv'
+fp2 = './recovery_data/driving_log.csv'
 data = []
 
-using_custom = False
+using_custom = True
 
 fileToUpload = fp2 if using_custom else fp1
 with open(fileToUpload) as csvfile:
@@ -191,8 +195,7 @@ for img_file_label in data:
     center_angle = float(img_file_label[3])
     left_angle = float(img_file_label[3]) + STEER_CORRECTION
     right_angle = float(img_file_label[3]) - STEER_CORRECTION
-
-    #steering angles
+    
     coinFlip = random.random()
     if isclose(center_angle, 0.0):
         if coinFlip > .85:
@@ -210,8 +213,8 @@ train_samples, test_samples, train_angles, test_angles = train_test_split(image_
 train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
 validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
 
-#model = load_model('model_mode_dropout_layers.h5')
-model = make_model()
+model = load_model("model_udacity_data.h5")
+#model = make_model()
 
 '''
 filepath = "weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
@@ -244,13 +247,13 @@ def coolfunc():
             model.save("model_blur_5_epochs_2_with_recovery.h5")
         bing()
 '''
-model = load_model('model_blur_5_epochs_2.h5')
+
 model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
         epochs=EPOCHS, \
         validation_data=validation_generator, validation_steps=len(test_samples)//BATCH_SIZE,\
         verbose = 1
          )
-model.save("model_blur_recovery2.h5")
+model.save('model_udacity_data_and_recov.h5')
 '''
 model_json = model.to_json()
 timestamp = datetime.datetime.now().strftime('%m-%d-%Y__%H-%M%p')
