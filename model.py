@@ -1,6 +1,5 @@
-import os, datetime, time, csv
+import os, datetime, time, csv, random, importlib
 from math import isclose
-import random, importlib
 
 import numpy as np
 import cv2
@@ -24,22 +23,6 @@ BATCH_SIZE = 128
 EPOCHS = 3
 ACTIVATION_FUNCTION = 'elu'
 PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7
-
-def bing():
-    '''
-    Function makes a sound - to be used when model training/testing is complete
-
-    This is actually crucial for a busy person, start the NN training, and then this function
-    is called (and makes the sound) when training's done
-    '''
-    pygame_spec = importlib.util.find_spec('pygame')
-    if pygame_spec is not None:
-        import pygame
-        pygame.mixer.init()
-        soundObj = pygame.mixer.Sound('beep1.ogg')
-        soundObj.play()
-        time.sleep(2)
-        soundObj.stop()
 
 def flipImages(images, steering_angle):
     flipped = np.copy(np.fliplr(images))   
@@ -78,6 +61,22 @@ def preprocess_image(image):
     image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
     return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
 
+def bing():
+    '''
+    This function makes a sound - to be used when model training/testing is complete
+
+    This is actually crucial for a busy person, start the NN training, and then this function
+    is called (and makes the sound) when training's done
+    '''
+    pygame_spec = importlib.util.find_spec('pygame')
+    if pygame_spec is not None:
+        import pygame
+        pygame.mixer.init()
+        soundObj = pygame.mixer.Sound('beep1.ogg')
+        soundObj.play()
+        time.sleep(2)
+        soundObj.stop()
+
 def generator(samples, tags, batch_size=BATCH_SIZE):
     
     samples, tags = shuffle(samples, tags)
@@ -94,10 +93,6 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
             steering_angles = []
 
             for bs in range(len(batch_samples)):
-                '''
-                print(batch_sample)
-                p=input()
-                '''
                 an_image = cv2.imread(batch_samples[bs])
                 
                 #crop, blur, resize, convert to YUV
@@ -109,7 +104,7 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 if len(images) >= BATCH_SIZE:
                     break
 
-                #Adds any image with a  
+                #Flips any image with a steering angle with absolute value > .2 
                 if abs(batch_tags[bs]) > .2:
                     flipped_image,flipped_angle = flipImages(an_image,batch_tags[bs] )                    
                     
@@ -128,6 +123,7 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
             images = np.array(images)
             steering_angles = np.array(steering_angles)
 
+            #When we have enough images, we output a batch via yield
             if len(images) >= BATCH_SIZE:
                 yield images[:BATCH_SIZE], steering_angles[:BATCH_SIZE]
                 samples, tags = shuffle(samples, tags)
@@ -142,7 +138,7 @@ def make_model():
 
     model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION  ))
+    model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
@@ -159,10 +155,21 @@ def make_model():
 
     #output layer... important !
     model.add(Dense(1))
+    #
     model.compile(loss='mse', optimizer=Adam(lr=1e-4), metrics=['accuracy'])
     return model
 
 def load_train_data(using_custom):
+    '''
+    This function puts the filepaths of the images, Class supplied
+    or custom images, based on the using_custom parameter
+    
+    It returns an array of image filepaths and an associated array with the 
+    the corresponding steering angles.
+
+    Also it only keeps 70% of the images with steering angle = 0 because 
+    it helps balance the data
+    '''
     fp1 = './data/driving_log.csv'
     fp2 = './recovery_data/driving_log.csv'
 
@@ -203,7 +210,10 @@ def load_train_data(using_custom):
         right_angle = float(img_file_label[3]) - STEER_CORRECTION
         
         coinFlip = random.random()
+
+        #if the steering angle is 0, isclose is a float comparison
         if isclose(center_angle, 0.0):
+            # Experimented with changing this parameter based on whether or not using custom data
             PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7 if using_custom else .7
             
             if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:
