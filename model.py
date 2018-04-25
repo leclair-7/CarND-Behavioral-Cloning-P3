@@ -19,7 +19,7 @@ from sklearn.utils import shuffle
 STEER_CORRECTION = .25
 PERCENTAGE_FLIPPED = .8
 BRIGHTNESS_CHANGES = .8
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 EPOCHS = 3
 ACTIVATION_FUNCTION = 'elu'
 PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7
@@ -136,7 +136,7 @@ def make_model():
     #normalize and set input shape
     model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
 
-    model.add(Conv2D(24, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(24, kernel_size=(5, 5), strides=(1, 1), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
     model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
@@ -194,13 +194,7 @@ def load_train_data(using_custom):
             center = './data/IMG/'+ img_file_label[0].split('/')[-1]
             left = './data/IMG/'+ img_file_label[1].split('/')[-1]
             right = './data/IMG/'+ img_file_label[2].split('/')[-1]
-
-        '''
-        print(center)
-        print(left)
-        print(right)
-        pause = input()
-        '''
+        
         
         if center == "./data/IMG/center":
             continue
@@ -214,7 +208,7 @@ def load_train_data(using_custom):
         #if the steering angle is 0, isclose is a float comparison
         if isclose(center_angle, 0.0):
             # Experimented with changing this parameter based on whether or not using custom data
-            PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7 if using_custom else .7
+            PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7 if using_custom else .85
             
             if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:
                 image_paths.extend( (center,left, right ) )
