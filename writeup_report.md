@@ -16,7 +16,7 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image1]: ./examples/placeholder.png "Model Visualization"
+[image1]: ./examples/recovery.png "Recovery"
 [image3]: ./examples/placeholder_small.png "Recovery Image"
 [image4]: ./examples/Steering-angle-filters.png "Steering Angles"
 [image5]: ./examples/cropped-notcropped.png "Cropped not Cropped"
@@ -120,4 +120,6 @@ I also used a function that changes the brightness of every image randomly, on s
 
 After each batch, the data was reshuffled in the generator function. It generator function was used which is a lazy evaluator and it makes the training data on demand. When a generator was not use the computer would crash do to either the RAM being full or on occasion, the GPU gives out of memory error.
 
-I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to .... These images show what a recovery looks like starting from ... :
+I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to .... These images show what a recovery looks like starting from being on the left lane to being back in the center.
+
+![alt text][image1]
