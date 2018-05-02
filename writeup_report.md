@@ -17,12 +17,11 @@ The goals / steps of this project are the following:
 [//]: # (Image References)
 
 [image1]: ./examples/placeholder.png "Model Visualization"
-[image2]: ./examples/placeholder.png "Grayscaling"
 [image3]: ./examples/placeholder_small.png "Recovery Image"
-[image4]: ./examples/placeholder_small.png "Recovery Image"
-[image5]: ./examples/placeholder_small.png "Recovery Image"
-[image6]: ./examples/placeholder_small.png "Normal Image"
-[image7]: ./examples/placeholder_small.png "Flipped Image"
+[image4]: ./examples/Steering-angle-filters.png "Steering Angles"
+[image5]: ./examples/cropped-notcropped.png "Cropped not Cropped"
+[image6]: ./examples/flipped-notflipped.png "Flipped Not Flipped"
+[image7]: ./examples/brightness-original.png "Brightness Changed"
 
 ## Rubric Points
 ### Here I will consider the [rubric points](https://review.udacity.com/#!/rubrics/432/view) individually and describe how I addressed each point in my implementation.  
@@ -106,18 +105,19 @@ The final model architecture (created by the make_model() function in model.py) 
 | Fully connected		| 10 outputs 									|
 | Fully connected		| 1 output (Steering Angle) 					|
 
-![alt text][image1]
 
 #### 3. Creation of the Training Set & Training Process
 
 To augment the data I appended an image copy with the brightness modified by random amount, and on more higher numbered steering angles, I flipped the image so the model would be trained with the higher number of images where it needs to steer at a higher angle such as when it gets close to a curve. Each image was loaded, cropped, blurred, resized to 64 x64, and then converted to YUV. In total I had 25,740 recovery images. Surprisingly enough, this is more than the 24,109 image files in the given training data.
 
+Since most frames involve a steering angle = 0, the data at the outset was heavily biased toward making the car steer straight. Given this fact, I decided to disregard about 70% of the image whose steering angles was 0. Below is a plot of the datasets that were ultimately sent to the generator to generate batches
+
+![alt text][image4]
+
 I also used a function that changes the brightness of every image randomly, on some images I created a copy (these were only ones with a considerable turning steering angle) which is greater than .2.
+
+![alt text][image7]
 
 After each batch, the data was reshuffled in the generator function. It generator function was used which is a lazy evaluator and it makes the training data on demand. When a generator was not use the computer would crash do to either the RAM being full or on occasion, the GPU gives out of memory error.
 
 I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to .... These images show what a recovery looks like starting from ... :
-
-![alt text][image3]
-![alt text][image4]
-![alt text][image5]
