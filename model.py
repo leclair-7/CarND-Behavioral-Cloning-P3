@@ -252,7 +252,11 @@ def train_model():
             model = load_model('model_udacity_only.h5')
 
         train_samples, test_samples, train_angles, test_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
+        
+        #training set
         train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
+        
+        #validation set
         validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
 
         model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
