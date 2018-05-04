@@ -14,6 +14,19 @@ from keras.optimizers import Adam
 import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
+'''
+After spending a ton of time on the car driving into the lake, we turn to
+https://github.com/ksakmann/CarND-BehavioralCloning/blob/master/README.md
+and use the following tips:
+
+(already doing this) A random training example is chosen
+The camera (left,right,center) is chosen randomly
+Random shear: the image is sheared horizontally to simulate a bending road
+(sort of doing this) Random crop: we randomly crop a frame out of the image to simulate the car being offset from the middle of the road (also downsampling the image to 64x64x3 is done in this step)
+(sort of doing this) Random flip: to make sure left and right turns occur just as frequently
+(sort of doing this) Random brightness: to simulate differnt lighting conditions
+
+'''
 
 # Model parameters 
 STEER_CORRECTION = .25
@@ -30,11 +43,11 @@ def flipImages(images, steering_angle):
 
 def change_brightness(image):
     img = np.copy(image)
-    image1 = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+    image1 = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
     image1 = np.array(image1,dtype=np.float64)
     # uniform means all outcomes equally likely, 
     # defaults to [0,1)
-    random_bright = .4 + np.random.uniform()
+    random_bright = .5 + np.random.uniform()
     #print(random_bright)
     image1[:,:,2] = image1[:,:,2]*random_bright
     # Data conversion and array slicing schemes -> Reference: the amazing Vivek Yadav
@@ -42,9 +55,28 @@ def change_brightness(image):
     #(np slicing) --> Put any pixel that was made greater than 255 back to 255
     image1[:,:,2][image1[:,:,2]>255]  = 255
     image1 = np.array(image1, dtype = np.uint8)
-    image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2RGB)
+    image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2BGR)
     return image1
 
+
+def trans_image(image,steer):
+    '''
+    We decide to use shearing in the preprocessing
+    '''
+    # https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_imgproc/py_geometric_transformations/py_geometric_transformations.html
+    # https://medium.com/@ksakmann/behavioral-cloning-make-a-car-drive-like-yourself-dc6021152713
+    trans_range = 150
+
+    translate_x = trans_range*np.random.uniform()-trans_range/2
+    steer_ang = steer + translate_x/trans_range*2*.2
+    tr_y = 0
+    
+    rows,cols,channels = image.shape
+
+    Trans_M = np.float32([[1,0,translate_x],[0,1,tr_y]])
+    image_tr = cv2.warpAffine(image,Trans_M,(cols,rows))
+    
+    return image_tr,steer_ang
 def preprocess_image(image):
     '''
     This function does the following:
@@ -53,9 +85,11 @@ def preprocess_image(image):
     3 - Resizes the image to 64 across 64 up/down
     4 - Converts the image to YUV
     '''
-    x,w = 25,image.shape[1]-25    
+    # top to cut off, bottom to cut off
+    x,w = 30,image.shape[1]-30
+    
     #left to cut off, right to cut off
-    y,h = 65, (image.shape[0] - 90)
+    y,h = 55, (image.shape[0] - 90)
     image = np.copy(image[y:y+h, x:x+w])
     image = cv2.GaussianBlur(image, (3,3), 0)    
     image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
@@ -93,20 +127,22 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
             steering_angles = []
 
             for bs in range(len(batch_samples)):
+                steering_angle = batch_tags[bs]               
                 an_image = cv2.imread(batch_samples[bs])
                 
+                an_image, steering_angle = trans_image(an_image, steering_angle)
                 #crop, blur, resize, convert to YUV
                 an_image = preprocess_image(an_image)
-
+                
                 images.append(  an_image  )
-                steering_angles.append( batch_tags[bs] )
+                steering_angles.append( steering_angle )
                 
                 if len(images) >= BATCH_SIZE:
                     break
-
+                    
                 #Flips any image with a steering angle with absolute value > .2 
                 if abs(batch_tags[bs]) > .2:
-                    flipped_image,flipped_angle = flipImages(an_image,batch_tags[bs] )                    
+                    flipped_image,flipped_angle = flipImages(an_image,steering_angle )                    
                     
                     images.append( flipped_image )
                     steering_angles.append( flipped_angle )
@@ -118,7 +154,7 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
                 # Helps the car drive in shadow situations and generalize
                 brightness_changed_image = change_brightness(an_image)                    
                 images.append( brightness_changed_image  )
-                steering_angles.append( batch_tags[bs] )
+                steering_angles.append( steering_angle )
             
             images = np.array(images)
             steering_angles = np.array(steering_angles)
@@ -136,26 +172,28 @@ def make_model():
     #normalize and set input shape
     model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
 
-    model.add(Conv2D(24, kernel_size=(5, 5), strides=(1, 1), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(32, kernel_size=(5,5), strides=(2,2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(36, kernel_size=(5, 5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(64, kernel_size=(5,5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Dropout(.5))
-    model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    #model.add(Dropout(.5))
+    model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     
     model.add(Flatten())
+    
+    model.add(Dropout(.5))
 
     model.add(Dense(100, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
     model.add(Dense(50, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
-    model.add(Dense(10, activation=ACTIVATION_FUNCTION))
+    #model.add(Dense(10, activation=ACTIVATION_FUNCTION))
 
     #output layer... important !
     model.add(Dense(1))
-    #
+    
     model.compile(loss='mse', optimizer=Adam(lr=1e-4), metrics=['accuracy'])
     return model
 
@@ -208,7 +246,7 @@ def load_train_data(using_custom):
         #if the steering angle is 0, isclose is a float comparison
         if isclose(center_angle, 0.0):
             # Experimented with changing this parameter based on whether or not using custom data
-            PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7 if using_custom else .85
+            PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .85 if using_custom else .85
             
             if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:
                 image_paths.extend( (center,left, right ) )
@@ -243,11 +281,11 @@ def train_model():
         image_paths, steering_angles = None, None
 
         if i == 0:
-            EPOCHS = 5
+            EPOCHS = 12
             image_paths, steering_angles = load_train_data(False)
             model = make_model()
         elif i == 1:
-            EPOCHS = 3
+            EPOCHS = 12
             image_paths, steering_angles = load_train_data(True)
             model = load_model('model_udacity_only.h5')
 
