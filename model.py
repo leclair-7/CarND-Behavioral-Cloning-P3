@@ -5,9 +5,10 @@ import numpy as np
 import cv2
 
 import tensorflow as tf
+from keras import regularizers
 
 from keras.models import Sequential, load_model, model_from_json
-from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D, Dropout, MaxPooling2D
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Conv2D, Dropout, MaxPooling2D,Activation
 from keras.callbacks import ModelCheckpoint
 from keras.optimizers import Adam
 
@@ -43,7 +44,7 @@ def flipImages(images, steering_angle):
 
 def change_brightness(image):
     img = np.copy(image)
-    image1 = cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
+    image1 = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
     image1 = np.array(image1,dtype=np.float64)
     # uniform means all outcomes equally likely, 
     # defaults to [0,1)
@@ -55,7 +56,7 @@ def change_brightness(image):
     #(np slicing) --> Put any pixel that was made greater than 255 back to 255
     image1[:,:,2][image1[:,:,2]>255]  = 255
     image1 = np.array(image1, dtype = np.uint8)
-    image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2BGR)
+    image1 = cv2.cvtColor(image1,cv2.COLOR_HSV2RGB)
     return image1
 
 
@@ -77,6 +78,7 @@ def trans_image(image,steer):
     image_tr = cv2.warpAffine(image,Trans_M,(cols,rows))
     
     return image_tr,steer_ang
+
 def preprocess_image(image):
     '''
     This function does the following:
@@ -93,7 +95,7 @@ def preprocess_image(image):
     image = np.copy(image[y:y+h, x:x+w])
     image = cv2.GaussianBlur(image, (3,3), 0)    
     image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
-    return cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 def bing():
     '''
@@ -195,24 +197,26 @@ def make_model():
     #normalize and set input shape
     model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
 
-    model.add(Conv2D(24, kernel_size=(6,6), strides=(2,2), activation=ACTIVATION_FUNCTION))
-    #model.add(MaxPooling2D())
-    model.add(Conv2D(35, kernel_size=(5,5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
-    #model.add(MaxPooling2D())
-    model.add(Conv2D(62, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
-    #model.add(MaxPooling2D())
-    #model.add(Dropout(.5))
-    #model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(20, kernel_size=(5,5), strides=(2,2)))
+    model.add(Activation(ACTIVATION_FUNCTION))
+    model.add(Conv2D(40, kernel_size=(3,3), strides=(2,2))) 
+    model.add(Activation(ACTIVATION_FUNCTION))
+    #model.add(Conv2D(45, kernel_size=(5,5), strides=(2, 2), kernel_regularizer=regularizers.l2(0.001)) )
+    #model.add(Activation(ACTIVATION_FUNCTION))    
+    model.add(Conv2D(65, kernel_size=(3,3), strides=(2, 2), kernel_regularizer=regularizers.l2(0.001)) )
+    model.add(Activation(ACTIVATION_FUNCTION))  
     
     model.add(Flatten())
-    
-    model.add(Dropout(.5))
-
-    model.add(Dense(512, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
+
+    model.add(Dense(512, kernel_regularizer=regularizers.l2(0.001)) )
+    model.add(Activation(ACTIVATION_FUNCTION))
+    model.add(Dropout(0.5))
+
+    
     model.add(Dense(50, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
-    #model.add(Dense(10, activation=ACTIVATION_FUNCTION))
+    model.add(Dense(10, activation=ACTIVATION_FUNCTION))
 
     #output layer... important !
     model.add(Dense(1))
@@ -231,8 +235,7 @@ def load_train_data_folder(folder_number):
     Also it only keeps 70% of the images with steering angle = 0 because 
     it helps balance the data
     '''
-    if folder_number == 1:
-        return None, None
+    
 
     fp0 = './data/driving_log.csv'
     fp1 = './recovery_data/driving_log.csv'
@@ -274,16 +277,14 @@ def load_train_data_folder(folder_number):
         right_angle = float(img_file_label[3]) - STEER_CORRECTION
         
         coinFlip = random.random()
-        '''
+        
         if isclose(center_angle,0.0):
             if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:               
                 image_paths.extend( (center, left, right ) )
                 steering_angles.extend( (center_angle, left_angle, right_angle) )
-        else:
-            
-        '''
-        image_paths.extend( (center, left, right ) )
-        steering_angles.extend( (center_angle, left_angle, right_angle) )
+        else:           
+            image_paths.extend( (center, left, right ) )
+            steering_angles.extend( (center_angle, left_angle, right_angle) )
 
     image_paths = image_paths
     steering_angles = steering_angles
@@ -313,8 +314,7 @@ def train_model():
 
     for i in range(3):
         images_temp,steering_angles_temp = load_train_data_folder(i)
-        if not images_temp:
-            continue
+        
         image_paths.extend(images_temp)
         steering_angles.extend(steering_angles_temp)
     
