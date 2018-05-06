@@ -47,7 +47,7 @@ def change_brightness(image):
     image1 = np.array(image1,dtype=np.float64)
     # uniform means all outcomes equally likely, 
     # defaults to [0,1)
-    random_bright = .5 + np.random.uniform()
+    random_bright = .25 + np.random.uniform()
     #print(random_bright)
     image1[:,:,2] = image1[:,:,2]*random_bright
     # Data conversion and array slicing schemes -> Reference: the amazing Vivek Yadav
@@ -127,34 +127,25 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
             steering_angles = []
 
             for bs in range(len(batch_samples)):
+
+                an_image = preprocess_image( cv2.imread(batch_samples[bs]) )
                 steering_angle = batch_tags[bs]               
-                an_image = cv2.imread(batch_samples[bs])
                 
-                an_image, steering_angle = trans_image(an_image, steering_angle)
-                #crop, blur, resize, convert to YUV
-                an_image = preprocess_image(an_image)
+
+                #an_image, steering_angle = trans_image(an_image, steering_angle)
+                an_image = change_brightness(an_image)
+                
+                coinFlip_flipImage = random.random()          
+                if coinFlip_flipImage > .5:# or steering_angle > .25:
+                    an_image, steering_angle = flipImages(an_image,steering_angle )                    
+                    images.append(  an_image  )
+                    steering_angles.append( steering_angle )
                 
                 images.append(  an_image  )
                 steering_angles.append( steering_angle )
                 
                 if len(images) >= BATCH_SIZE:
                     break
-                    
-                #Flips any image with a steering angle with absolute value > .2 
-                if abs(batch_tags[bs]) > .2:
-                    flipped_image,flipped_angle = flipImages(an_image,steering_angle )                    
-                    
-                    images.append( flipped_image )
-                    steering_angles.append( flipped_angle )
-                
-                if len(images) >= BATCH_SIZE:
-                    break
-
-                #Add a copy of each datapoint with different brightness
-                # Helps the car drive in shadow situations and generalize
-                brightness_changed_image = change_brightness(an_image)                    
-                images.append( brightness_changed_image  )
-                steering_angles.append( steering_angle )
             
             images = np.array(images)
             steering_angles = np.array(steering_angles)
@@ -163,7 +154,39 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
             if len(images) >= BATCH_SIZE:
                 yield images[:BATCH_SIZE], steering_angles[:BATCH_SIZE]
                 samples, tags = shuffle(samples, tags)
+def validation_generator(samples, tags, batch_size=BATCH_SIZE):
+    samples, tags = shuffle(samples, tags)
 
+    assert len(samples) == len(tags)
+    
+    while 1:
+
+        for offset in range(0, len(samples), batch_size):            
+
+            batch_samples, batch_tags = samples[offset:offset+batch_size], tags[offset:offset+batch_size]
+            
+            images = []
+            steering_angles = []
+
+            for bs in range(len(batch_samples)):
+                
+                an_image = cv2.imread(batch_samples[bs])
+                steering_angle = batch_tags[bs]               
+                
+                #crop, resize, convert to RGB
+                an_image = preprocess_image(an_image)                
+                images.append(  an_image  )
+                steering_angles.append( steering_angle )
+                
+                if len(images) >= BATCH_SIZE:
+                    break                               
+            images = np.array(images)
+            steering_angles = np.array(steering_angles)
+
+            #When we have enough images, we output a batch via yield
+            if len(images) >= BATCH_SIZE:
+                yield images[:BATCH_SIZE], steering_angles[:BATCH_SIZE]
+                samples, tags = shuffle(samples, tags)
 def make_model():
     '''
     Outputs the model that we will use to control the car and predict the steering angle
@@ -172,11 +195,11 @@ def make_model():
     #normalize and set input shape
     model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
 
-    model.add(Conv2D(32, kernel_size=(6,6), strides=(2,2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(24, kernel_size=(6,6), strides=(2,2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(48, kernel_size=(5,5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(35, kernel_size=(5,5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(62, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
     #model.add(Dropout(.5))
     #model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
@@ -298,7 +321,7 @@ def train_model():
     image_paths = np.array(image_paths)
     steering_angles = np.array(steering_angles)
 
-    EPOCHS = 12
+    EPOCHS = 5
     model = make_model()    
 
     train_samples, validation_paths, test_samples, v_steering_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
@@ -316,17 +339,17 @@ def train_model():
     print()
 
     checkpoint = ModelCheckpoint('model{epoch:02d}.h5')
-    lifecycle_callback = LifecycleCallback()
-
+    
     model.fit_generator(train_generator, steps_per_epoch=100, \
     epochs=EPOCHS, \
     validation_data=val_generator, validation_steps=10,\
     verbose = 1,
-    callbacks = [checkpoint,lifecycle_callback]
+    callbacks = [checkpoint]
     )
 
     model.save("model_master.h5" )
     print( model.summary() )
     bing()     
-
+start = time.time()
 train_model()
+print("It took {} to upload data and train".format(str(time.time()-start)))
