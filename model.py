@@ -172,20 +172,20 @@ def make_model():
     #normalize and set input shape
     model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
 
-    model.add(Conv2D(32, kernel_size=(5,5), strides=(2,2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(32, kernel_size=(6,6), strides=(2,2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(64, kernel_size=(5,5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(48, kernel_size=(5,5), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
-    model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    model.add(Conv2D(64, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     #model.add(MaxPooling2D())
     #model.add(Dropout(.5))
-    model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
+    #model.add(Conv2D(128, kernel_size=(3, 3), strides=(2, 2), activation=ACTIVATION_FUNCTION))
     
     model.add(Flatten())
     
     model.add(Dropout(.5))
 
-    model.add(Dense(100, activation=ACTIVATION_FUNCTION))
+    model.add(Dense(512, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
     model.add(Dense(50, activation=ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
@@ -197,7 +197,7 @@ def make_model():
     model.compile(loss='mse', optimizer=Adam(lr=1e-4), metrics=['accuracy'])
     return model
 
-def load_train_data(using_custom):
+def load_train_data_folder(folder_number):
     '''
     This function puts the filepaths of the images, Class supplied
     or custom images, based on the using_custom parameter
@@ -208,23 +208,31 @@ def load_train_data(using_custom):
     Also it only keeps 70% of the images with steering angle = 0 because 
     it helps balance the data
     '''
-    fp1 = './data/driving_log.csv'
-    fp2 = './recovery_data/driving_log.csv'
+    if folder_number == 1:
+        return None, None
 
+    fp0 = './data/driving_log.csv'
+    fp1 = './recovery_data/driving_log.csv'
+    fp2 = './lap_counter_clock/driving_log.csv'
+    fp3 = './challenge_course/driving_log.csv'
+    
+    folder_dict = {0:fp0, 1:fp1, 2:fp2}
+    
+    fileToUpload = folder_dict[folder_number]
+    
     data = []
     
-    fileToUpload = fp2 if using_custom else fp1
     with open(fileToUpload) as csvfile:
         reader = csv.reader(csvfile)
         for line in reader:
             data.append(line)
 
     image_paths = []
-    steering_angles = []
+    steering_angles = []    
 
-    for img_file_label in data:    
+    for img_file_label in data[1:]:    
            
-        if using_custom:
+        if folder_number > 0:
             center = img_file_label[0].split('/')[-1]
             left = img_file_label[1].split('/')[-1]
             right = img_file_label[2].split('/')[-1]
@@ -236,29 +244,31 @@ def load_train_data(using_custom):
         
         if center == "./data/IMG/center":
             continue
+        
 
         center_angle = float(img_file_label[3])
         left_angle = float(img_file_label[3]) + STEER_CORRECTION
         right_angle = float(img_file_label[3]) - STEER_CORRECTION
         
         coinFlip = random.random()
-
-        #if the steering angle is 0, isclose is a float comparison
-        if isclose(center_angle, 0.0):
-            # Experimented with changing this parameter based on whether or not using custom data
-            PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .85 if using_custom else .85
-            
-            if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:
-                image_paths.extend( (center,left, right ) )
+        '''
+        if isclose(center_angle,0.0):
+            if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:               
+                image_paths.extend( (center, left, right ) )
                 steering_angles.extend( (center_angle, left_angle, right_angle) )
         else:
-            image_paths.extend( (center,left, right ) )
-            steering_angles.extend( (center_angle, left_angle, right_angle) )
-        
-    image_paths = np.array(image_paths)
-    steering_angles = np.array(steering_angles)
+            
+        '''
+        image_paths.extend( (center, left, right ) )
+        steering_angles.extend( (center_angle, left_angle, right_angle) )
+
+    image_paths = image_paths
+    steering_angles = steering_angles
+    
+    assert len(image_paths) == len(steering_angles)
 
     return image_paths, steering_angles
+
 
 def train_model():
     '''
@@ -276,38 +286,47 @@ def train_model():
     Given the amount of time for training, I have the program make a sound when it's done;
     a polling mechanism for humans
     '''
-    for i in range(2):
+    image_paths, steering_angles = [], []
 
-        image_paths, steering_angles = None, None
+    for i in range(3):
+        images_temp,steering_angles_temp = load_train_data_folder(i)
+        if not images_temp:
+            continue
+        image_paths.extend(images_temp)
+        steering_angles.extend(steering_angles_temp)
+    
+    image_paths = np.array(image_paths)
+    steering_angles = np.array(steering_angles)
 
-        if i == 0:
-            EPOCHS = 12
-            image_paths, steering_angles = load_train_data(False)
-            model = make_model()
-        elif i == 1:
-            EPOCHS = 12
-            image_paths, steering_angles = load_train_data(True)
-            model = load_model('model_udacity_only.h5')
+    EPOCHS = 12
+    model = make_model()    
 
-        train_samples, test_samples, train_angles, test_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
-        
-        #training set
-        train_generator = generator(train_samples, train_angles, batch_size=BATCH_SIZE)
-        
-        #validation set
-        validation_generator = generator(test_samples, test_angles, batch_size=BATCH_SIZE)
+    train_samples, validation_paths, test_samples, v_steering_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
+    
+    #training set
+    train_generator = generator(train_samples, test_samples, batch_size=BATCH_SIZE)
+    
+    #validation set
+    val_generator = validation_generator(validation_paths, v_steering_angles, batch_size=BATCH_SIZE)
 
-        model.fit_generator(train_generator, steps_per_epoch=len(train_samples)//BATCH_SIZE, \
-        epochs=EPOCHS, \
-        validation_data=validation_generator, validation_steps=len(test_samples)//BATCH_SIZE,\
-        verbose = 1
-         )
 
-        if i ==0:
-            model.save('model_udacity_only.h5')
-        elif i==1:
-            model.save("model.h5")
+    print("Amount of datapoints in each set")
+    for j in [train_samples, validation_paths, test_samples, v_steering_angles]:
+        print(len(j))
+    print()
+
+    checkpoint = ModelCheckpoint('model{epoch:02d}.h5')
+    lifecycle_callback = LifecycleCallback()
+
+    model.fit_generator(train_generator, steps_per_epoch=100, \
+    epochs=EPOCHS, \
+    validation_data=val_generator, validation_steps=10,\
+    verbose = 1,
+    callbacks = [checkpoint,lifecycle_callback]
+    )
+
+    model.save("model_master.h5" )
+    print( model.summary() )
     bing()     
 
-if __name__=='__main__':    
-    train_model()
+train_model()
