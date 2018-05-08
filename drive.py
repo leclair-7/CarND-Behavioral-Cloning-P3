@@ -48,44 +48,25 @@ set_speed = 12
 controller.set_desired(set_speed)
 
 def preprocess_image(image):
-    '''
-    crop
-    resize 200 across 66 up/down
-    convert to YUV
-    '''
-    #print(image.shape)
-    #x,w = 25,image.shape[1]-25    
-    #left to cut off, right to cut off
-    y,h = 65, (image.shape[0] - 90)
-    image = image[y:y+h, x:x+w]
-    #print(image.shape)
-    #image = cv2.GaussianBlur(image, (3,3), 0)
-    image = cv2.resize(image, (64,64), interpolation=cv2.INTER_AREA)
-    return image
-def random_crop(image,steering=0.0,tx_lower=-20,tx_upper=20,ty_lower=-2,ty_upper=2,rand=True):
-    # we will randomly crop subsections of the image and use them as our data set.
-    # also the input to the network will need to be cropped, but of course not randomly and centered.
+    
     shape = image.shape
-    col_start,col_end =abs(tx_lower),shape[1]-tx_upper
-    horizon=60;
-    bonnet=136
-    if rand:
-        tx= np.random.randint(tx_lower,tx_upper+1)
-        ty= np.random.randint(ty_lower,ty_upper+1)
-    else:
-        tx,ty=0,0
+    x_start, x_end = 20, shape[1]-20
+    upper_y_coord = 60
+    px_above_steering_wheel = 135
     
-    #    print('tx = ',tx,'ty = ',ty)
-    random_crop = image[horizon+ty:bonnet+ty,col_start+tx:col_end+tx,:]
+    tx_lower = -20
+    tx_upper = 20
+    ty_lower = -2
+    ty_upper = 2 
+    
+    tx,ty = 0,0
+    
+    random_crop = image[upper_y_coord+ty:px_above_steering_wheel + ty, x_start+tx: x_end+tx,:]
+    
+    #image = cv2.GaussianBlur(image, (3,3), 0)
     image = cv2.resize(random_crop,(64,64),cv2.INTER_AREA)
-    # the steering variable needs to be updated to counteract the shift 
-    if tx_lower != tx_upper:
-        dsteering = -tx/(tx_upper-tx_lower)/3.0
-    else:
-        dsteering = 0
-    steering += dsteering
-    
-    return image,steering
+    return image
+
 @sio.on('telemetry')
 def telemetry(sid, data):
     if data:
@@ -100,9 +81,8 @@ def telemetry(sid, data):
         image = Image.open(BytesIO(base64.b64decode(imgString)))
         
         image_array = np.asarray(image)
-        #image_array = preprocess_image(image_array)       
-        image_array, _ = random_crop(image_array)
-
+        image_array = preprocess_image(image_array)       
+        
         steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
 
         throttle = controller.update(float(speed))
