@@ -1,3 +1,4 @@
+from keras.models import load_model
 import os, datetime, time, csv, random, importlib
 from math import isclose
 
@@ -36,7 +37,7 @@ BRIGHTNESS_CHANGES = .8
 BATCH_SIZE = 256
 EPOCHS = 3
 ACTIVATION_FUNCTION = 'elu'
-PROBABILITY_SKIP_ZERO_STEERING_ANGLE = .7
+PROBABILITY_SKIP_ZERO_STEERING_ANGLE = 0.0
 
 def flipImages(images, steering_angle):
     flipped = np.copy(np.fliplr(images))   
@@ -48,7 +49,7 @@ def change_brightness(image):
     image1 = np.array(image1,dtype=np.float64)
     # uniform means all outcomes equally likely, 
     # defaults to [0,1)
-    random_bright = .25 + np.random.uniform()
+    random_bright = 0.8 + 0.4*(2*np.random.uniform()-1.0) 
     #print(random_bright)
     image1[:,:,2] = image1[:,:,2]*random_bright
     # Data conversion and array slicing schemes -> Reference: the amazing Vivek Yadav
@@ -66,16 +67,19 @@ def trans_image(image,steer):
     '''
     # https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_imgproc/py_geometric_transformations/py_geometric_transformations.html
     # https://medium.com/@ksakmann/behavioral-cloning-make-a-car-drive-like-yourself-dc6021152713
-    trans_range = 150
+    trans_range_x = 115
+    trans_range_y = 40
+    translate_x = trans_range_x * np.random.uniform() - trans_range_x/2
+    translate_y = trans_range_y * np.random.uniform() - trans_range_y/2
 
-    translate_x = trans_range*np.random.uniform()-trans_range/2
-    steer_ang = steer + translate_x/trans_range*2*.2
-    tr_y = 0
+    steer_ang = steer + (translate_x/trans_range_x * 2 * .2)    
     
-    rows,cols,channels = image.shape
+    img2 = np.copy(image)
+    #this better be 64x64x3
+    rows,cols,channels = img2.shape
 
-    Trans_M = np.float32([[1,0,translate_x],[0,1,tr_y]])
-    image_tr = cv2.warpAffine(image,Trans_M,(cols,rows))
+    Trans_M = np.float32([[1,0,translate_x],[0,1,translate_y]])
+    image_tr = cv2.warpAffine(img2,Trans_M,(cols,rows))
     
     return image_tr,steer_ang
 
@@ -88,14 +92,39 @@ def preprocess_image(image):
     4 - Converts the image to YUV
     '''
     # top to cut off, bottom to cut off
-    x,w = 30,image.shape[1]-30
+    #x,w = 30,image.shape[1]-30
     
     #left to cut off, right to cut off
-    y,h = 55, (image.shape[0] - 90)
-    image = np.copy(image[y:y+h, x:x+w])
-    image = cv2.GaussianBlur(image, (3,3), 0)    
-    image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
+    #y,h = 55, (image.shape[0] - 90)
+    #image = np.copy(image[y:y+h, x:x+w])
+    #image = cv2.GaussianBlur(image, (3,3), 0)    
+    #image = cv2.resize(image, (64,64),interpolation=cv2.INTER_AREA )
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+def random_crop(image,steering=0.0,tx_lower=-20,tx_upper=20,ty_lower=-2,ty_upper=2,rand=True):
+    # we will randomly crop subsections of the image and use them as our data set.
+    # also the input to the network will need to be cropped, but of course not randomly and centered.
+    shape = image.shape
+    col_start,col_end =abs(tx_lower),shape[1]-tx_upper
+    horizon=60;
+    bonnet=136
+    if rand:
+        tx= np.random.randint(tx_lower,tx_upper+1)
+        ty= np.random.randint(ty_lower,ty_upper+1)
+    else:
+        tx,ty=0,0
+    
+    
+    random_crop = image[horizon+ty:bonnet+ty,col_start+tx:col_end+tx,:]
+    image = cv2.resize(random_crop,(64,64),cv2.INTER_AREA)
+    # the steering variable needs to be updated to counteract the shift 
+    if tx_lower != tx_upper:
+        dsteering = -tx/(tx_upper-tx_lower)/3.0
+    else:
+        dsteering = 0
+    steering += dsteering
+    
+    return image,steering
 
 def bing():
     '''
@@ -113,7 +142,7 @@ def bing():
         time.sleep(2)
         soundObj.stop()
 
-def generator(samples, tags, batch_size=BATCH_SIZE):
+def generator(samples, tags, bias, batch_size=BATCH_SIZE):
     
     samples, tags = shuffle(samples, tags)
 
@@ -128,20 +157,38 @@ def generator(samples, tags, batch_size=BATCH_SIZE):
             images = []
             steering_angles = []
 
-            for bs in range(len(batch_samples)):
+            for bs in range(len(batch_samples)):              
 
-                an_image = preprocess_image( cv2.imread(batch_samples[bs]) )
-                steering_angle = batch_tags[bs]               
+                #pick center, left, or right randomly
+                center_left_or_right = np.random.randint(3)
+
+
+                an_image = preprocess_image( cv2.imread(batch_samples[bs][center_left_or_right]) )
+                steering_angle = batch_tags[bs][center_left_or_right]
+
                 
 
+
+                threshold = np.random.uniform()
+                '''
+                if (abs(steering_angle) + bias) < threshold or abs(steering_angle) > 1.:
+                    continue
+                '''
                 #an_image, steering_angle = trans_image(an_image, steering_angle)
-                an_image = change_brightness(an_image)
+                #if random.random() > .5:
+                an_image, steering_angle = trans_image(an_image,steering_angle)
+
+                an_image,steering_angle = random_crop(an_image,steering_angle)
+
+                if random.random() > .5:
+                    an_image, steering_angle = flipImages(an_image,steering_angle )
+
                 
-                coinFlip_flipImage = random.random()          
-                if coinFlip_flipImage > .5:# or steering_angle > .25:
-                    an_image, steering_angle = flipImages(an_image,steering_angle )                    
-                    images.append(  an_image  )
-                    steering_angles.append( steering_angle )
+                #if random.random() > .5
+                an_image = change_brightness(an_image)           
+                          
+                
+
                 
                 images.append(  an_image  )
                 steering_angles.append( steering_angle )
@@ -172,16 +219,26 @@ def validation_generator(samples, tags, batch_size=BATCH_SIZE):
 
             for bs in range(len(batch_samples)):
                 
+                center_left_or_right = np.random.randint(3)
+
+                an_image = preprocess_image( cv2.imread(batch_samples[bs][center_left_or_right]) )
+                an_image = cv2.resize(an_image, (64,64),interpolation=cv2.INTER_AREA )
+
+                steering_angle = batch_tags[bs][center_left_or_right]
+                '''
                 an_image = cv2.imread(batch_samples[bs])
                 steering_angle = batch_tags[bs]               
-                
+                '''
                 #crop, resize, convert to RGB
-                an_image = preprocess_image(an_image)                
+                #an_image = preprocess_image(an_image)
+                
+
                 images.append(  an_image  )
                 steering_angles.append( steering_angle )
                 
                 if len(images) >= BATCH_SIZE:
                     break                               
+            
             images = np.array(images)
             steering_angles = np.array(steering_angles)
 
@@ -189,39 +246,40 @@ def validation_generator(samples, tags, batch_size=BATCH_SIZE):
             if len(images) >= BATCH_SIZE:
                 yield images[:BATCH_SIZE], steering_angles[:BATCH_SIZE]
                 samples, tags = shuffle(samples, tags)
+
 def make_model():
     '''
     Outputs the model that we will use to control the car and predict the steering angle
     '''
     model = Sequential()
     #normalize and set input shape
-    model.add(Lambda(lambda x: x/255. - 0.5, input_shape=(64,64, 3)))
+    model.add(Lambda(lambda x: x/127.5 - 1.0, input_shape=(64, 64, 3)))
 
-    model.add(Conv2D(20, kernel_size=(5,5), strides=(2,2)))
+    #model.add(Conv2D(3, kernel_size=(1, 1), strides=(1, 1), border_mode='same', name='color_conv') )
+    model.add(Conv2D(32, kernel_size=(8,8), strides=(4,4),padding='same'))
     model.add(Activation(ACTIVATION_FUNCTION))
-    model.add(Conv2D(40, kernel_size=(3,3), strides=(2,2))) 
+    model.add(Conv2D(64, kernel_size=(8,8), strides=(4,4),padding='same')) 
     model.add(Activation(ACTIVATION_FUNCTION))
     #model.add(Conv2D(45, kernel_size=(5,5), strides=(2, 2), kernel_regularizer=regularizers.l2(0.001)) )
     #model.add(Activation(ACTIVATION_FUNCTION))    
-    model.add(Conv2D(65, kernel_size=(3,3), strides=(2, 2), kernel_regularizer=regularizers.l2(0.001)) )
+    model.add(Conv2D(128, kernel_size=(4,4), strides=(2,2),padding='same') )
+    model.add(Conv2D(128, kernel_size=(2,2), strides=(1,1),padding='same') )
     model.add(Activation(ACTIVATION_FUNCTION))  
     
     model.add(Flatten())
     model.add(Dropout(0.5))
 
-    model.add(Dense(512, kernel_regularizer=regularizers.l2(0.001)) )
+    model.add(Dense(128) )
     model.add(Activation(ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
 
     
-    model.add(Dense(50, activation=ACTIVATION_FUNCTION))
-    model.add(Dropout(0.5))
-    model.add(Dense(10, activation=ACTIVATION_FUNCTION))
-
+    model.add(Dense(128, activation=ACTIVATION_FUNCTION))
+    
     #output layer... important !
     model.add(Dense(1))
     
-    model.compile(loss='mse', optimizer=Adam(lr=1e-4), metrics=['accuracy'])
+    model.compile(loss='mse', optimizer=Adam(lr=1e-4, epsilon=1e-08), metrics=['accuracy'])
     return model
 
 def load_train_data_folder(folder_number):
@@ -276,15 +334,12 @@ def load_train_data_folder(folder_number):
         left_angle = float(img_file_label[3]) + STEER_CORRECTION
         right_angle = float(img_file_label[3]) - STEER_CORRECTION
         
+        image_path_3 = (center, left, right ) 
+        steering_3 = (center_angle,left_angle,right_angle)
         coinFlip = random.random()
         
-        if isclose(center_angle,0.0):
-            if coinFlip > PROBABILITY_SKIP_ZERO_STEERING_ANGLE:               
-                image_paths.extend( (center, left, right ) )
-                steering_angles.extend( (center_angle, left_angle, right_angle) )
-        else:           
-            image_paths.extend( (center, left, right ) )
-            steering_angles.extend( (center_angle, left_angle, right_angle) )
+        image_paths.append(image_path_3)
+        steering_angles.append(steering_3)
 
     image_paths = image_paths
     steering_angles = steering_angles
@@ -293,7 +348,68 @@ def load_train_data_folder(folder_number):
 
     return image_paths, steering_angles
 
+def load_train_data_folder_triples(folder_number):
+    '''
+    This function puts the filepaths of the images, Class supplied
+    or custom images, based on the using_custom parameter
+    
+    It returns an array of image filepaths and an associated array with the 
+    the corresponding steering angles.
 
+    Also it only keeps 70% of the images with steering angle = 0 because 
+    it helps balance the data
+    '''
+    
+
+    fp0 = './data/driving_log.csv'
+    fp1 = './recovery_data/driving_log.csv'
+    fp2 = './lap_counter_clock/driving_log.csv'
+    fp3 = './challenge_course/driving_log.csv'
+    
+    folder_dict = {0:fp0, 1:fp1, 2:fp2}
+    
+    fileToUpload = folder_dict[folder_number]
+    
+    data = []
+    
+    with open(fileToUpload) as csvfile:
+        reader = csv.reader(csvfile)
+        for line in reader:
+            data.append(line)
+
+    image_paths = []
+    steering_angles = []    
+
+    for img_file_label in data[1:]:    
+           
+        if folder_number > 0:
+            center = img_file_label[0].split('/')[-1]
+            left = img_file_label[1].split('/')[-1]
+            right = img_file_label[2].split('/')[-1]
+        else:
+            center = './data/IMG/'+ img_file_label[0].split('/')[-1]
+            left = './data/IMG/'+ img_file_label[1].split('/')[-1]
+            right = './data/IMG/'+ img_file_label[2].split('/')[-1]
+        
+        
+        if center == "./data/IMG/center":
+            continue
+        
+        offset=1.0 
+        dist=20.0    
+        center_angle = float(img_file_label[3])
+        left_angle = float(img_file_label[3]) + offset/dist * 360/( 2*np.pi) / 25.0
+        right_angle = float(img_file_label[3]) - (offset/dist * 360/( 2*np.pi) / 25.0)
+                   
+        image_paths.append( (center, left, right ) )
+        steering_angles.append( (center_angle, left_angle, right_angle) )
+
+    image_paths = image_paths
+    steering_angles = steering_angles
+    
+    assert len(image_paths) == len(steering_angles)
+
+    return image_paths, steering_angles
 def train_model():
     '''
     This function trains the model and outputs the .h5 file
@@ -313,21 +429,24 @@ def train_model():
     image_paths, steering_angles = [], []
 
     for i in range(3):
-        images_temp,steering_angles_temp = load_train_data_folder(i)
-        
+        images_temp,steering_angles_temp = load_train_data_folder_triples(i)
+        if i == 1:
+            continue
         image_paths.extend(images_temp)
         steering_angles.extend(steering_angles_temp)
     
     image_paths = np.array(image_paths)
     steering_angles = np.array(steering_angles)
 
-    EPOCHS = 5
-    model = make_model()    
+    
+    EPOCHS = 6
+    #model = make_model()    
+    model = load_model("model_master6.h5")
 
-    train_samples, validation_paths, test_samples, v_steering_angles = train_test_split(image_paths, steering_angles, test_size=0.2, random_state=42)
+    train_samples, validation_paths, test_samples, v_steering_angles = train_test_split(image_paths, steering_angles, test_size=0.1, random_state=42)
     
     #training set
-    train_generator = generator(train_samples, test_samples, batch_size=BATCH_SIZE)
+    #train_generator = generator(train_samples, test_samples, bias, batch_size=BATCH_SIZE)
     
     #validation set
     val_generator = validation_generator(validation_paths, v_steering_angles, batch_size=BATCH_SIZE)
@@ -338,16 +457,28 @@ def train_model():
         print(len(j))
     print()
 
-    checkpoint = ModelCheckpoint('model{epoch:02d}.h5')
     
-    model.fit_generator(train_generator, steps_per_epoch=100, \
-    epochs=EPOCHS, \
-    validation_data=val_generator, validation_steps=10,\
-    verbose = 1,
-    callbacks = [checkpoint]
-    )
+    num_runs = 1
+    #checkpoint = ModelCheckpoint('model{epoch:02d}.h5')
+    while 1:
+        bias = 1. / (num_runs + 1.)
 
-    model.save("model_master.h5" )
+        model.fit_generator(generator(train_samples, test_samples, bias, batch_size=BATCH_SIZE), steps_per_epoch=80, \
+        epochs=1, \
+        validation_data=val_generator, validation_steps=10,\
+        verbose = 1
+        )
+        '''
+        #,
+        #callbacks = [checkpoint]
+        '''
+        if num_runs >2 and num_runs%3==0:
+            model.save("model_{}.h5".format(num_runs) )
+        num_runs += 1
+        if num_runs > EPOCHS:
+            break
+
+    model.save("model_master7.h5" )
     print( model.summary() )
     bing()     
 start = time.time()
