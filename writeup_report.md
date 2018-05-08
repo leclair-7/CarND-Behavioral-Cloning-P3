@@ -18,7 +18,7 @@ The goals / steps of this project are the following:
 
 [image1]: ./examples/recovery.png "Recovery"
 [image3]: ./examples/placeholder_small.png "Recovery Image"
-[image4]: ./examples/Steering-angle-filters.png "Steering Angles"
+[image4]: ./examples/dataset.png "Steering Angles"
 [image5]: ./examples/cropped-notcropped.png "Cropped not Cropped"
 [image6]: ./examples/flipped-notflipped.png "Flipped Not Flipped"
 [image7]: ./examples/brightness-original.png "Brightness Changed"
@@ -92,36 +92,29 @@ The final model architecture (created by the make_model() function in model.py) 
 | Layer         		|     Description	        					|
 |:---------------------:|:---------------------------------------------:|
 | Input / normalize 	| 64x64x3 image    								|
-| Convolution 5x5x24   	| 1x1 stride, Valid Padding 					|
-| Convolution 5x5x36   	| 2x2 stride, Valid Padding 					|
-| Convolution 3x3x64   	| 2x2 stride, Valid Padding						|
-| Dropout      			| keep probability = .5							|
-| Convolution 3x3x64  	| 2x2 stride, Valid Padding 					|
+| Convolution 8x8x32   	| 4x4 stride, Same Padding 					|
+| Convolution 8x8x64   	| 4x4 stride, Same Padding 					|
+| Convolution 4x4x64   	| 2x2 stride, Same Padding						|
+| Convolution 2x2x128  	| 1x1 stride, Same Padding 					|
 | Flatten				| flatten to a 1D vector						|
-| Fully connected		| 100 outputs 									|
+| Dropout      			| keep probability = .5							|
+| Fully connected		| 128 outputs 									|
 | ELU	      			| 												|
 | Dropout      			| keep probability = .5							|
-| Fully connected		| 50 outputs 									|
-| ELU	      			| 												|
-| Dropout      			| keep probability = .5							|
-| Fully connected		| 10 outputs 									|
+| Fully connected		| 128 outputs 									|
 | Fully connected		| 1 output (Steering Angle) 					|
 
 
 #### 3. Creation of the Training Set & Training Process
 
-To augment the data I appended an image copy with the brightness modified by random amount, and on more higher numbered steering angles, I flipped the image so the model would be trained with the higher number of images where it needs to steer at a higher angle such as when it gets close to a curve. Each image was loaded, cropped, blurred, resized to 64 x64, and then converted to YUV. In total I had 25,740 recovery images. Surprisingly enough, this is more than the 24,109 image files in the given training data.
+To augment the data I randomly translated the image about the x axis and y axis), randomly cropped the image, randomly changed the brightness, and flipped half of the images. In total I had 7,444 images of the car driving counterclockwise. Surprisingly enough, this is less than the 24,109 image files in the given training data.
 
-Since most frames involve a steering angle = 0, the data at the outset was heavily biased toward making the car steer straight. Given this fact, I decided to disregard about 70% of the image whose steering angles was 0. Below is a plot of the datasets that were ultimately sent to the generator to generate batches
+Since most frames involve a steering angle = 0, the data at the outset was heavily biased toward making the car steer straight. This was corrected for by use of the cropping function which changes the steering angle based on how much it changed the input image. This lets the model learn how to steer curves synthetically. In my first submission, I decided to disregard about 70% of the image whose steering angles was 0. I then collected data/increased model complexity, used multiple weekends of effort. The first approach did not work except in very specific situations.  
 
+The dataset without the zero steering angles removed is displayed below. The advantage of changing the steering angle with respect to how the crop manipulation is generated is that the model learns more situations where it is close to the lane line.
 ![alt text][image4]
 
-I also used a function that changes the brightness of every image randomly, on some images I created a copy (these were only ones with a considerable turning steering angle) which is greater than .2.
-
+Brightness Change:
 ![alt text][image7]
 
-After each batch, the data was reshuffled in the generator function. It generator function was used which is a lazy evaluator and it makes the training data on demand. When a generator was not use the computer would crash do to either the RAM being full or on occasion, the GPU gives out of memory error.
-
-I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to .... These images show what a recovery looks like starting from being on the left lane to being back in the center.
-
-![alt text][image1]
+After each batch, the data was reshuffled in the generator function. The generator function used is a lazy evaluator; it makes the training data on demand. When a generator was not used the computer crashed due to either the RAM being full or on occasion, the GPU gives out of memory error.
