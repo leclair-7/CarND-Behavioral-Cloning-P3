@@ -24,9 +24,9 @@ and use the following tips:
 (already doing this) A random training example is chosen
 The camera (left,right,center) is chosen randomly
 Random shear: the image is sheared horizontally to simulate a bending road
-(sort of doing this) Random crop: we randomly crop a frame out of the image to simulate the car being offset from the middle of the road (also downsampling the image to 64x64x3 is done in this step)
-(sort of doing this) Random flip: to make sure left and right turns occur just as frequently
-(sort of doing this) Random brightness: to simulate differnt lighting conditions
+(check) Random crop: we randomly crop a frame out of the image to simulate the car being offset from the middle of the road (also downsampling the image to 64x64x3 is done in this step)
+(check) Random flip: to make sure left and right turns occur just as frequently
+(check) Random brightness: to simulate differnt lighting conditions
 
 '''
 
@@ -44,6 +44,11 @@ def flipImages(images, steering_angle):
     return (flipped, -1 * steering_angle)
 
 def change_brightness(image):
+    '''
+    Randomly changes the brightness of the image.
+
+    Caution, this function may only assist with the challenge course, superfluous compute for goal?
+    '''
     img = np.copy(image)
     image1 = cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
     image1 = np.array(image1,dtype=np.float64)
@@ -86,10 +91,8 @@ def trans_image(image,steer):
 def preprocess_image(image):
     '''
     This function does the following:
-    1 - Crops the image
-    2 - Blurs the image slightly
-    3 - Resizes the image to 64 across 64 up/down
-    4 - Converts the image to YUV
+    
+    1 - Converts the image to RGB
     '''
     # top to cut off, bottom to cut off
     #x,w = 30,image.shape[1]-30
@@ -164,7 +167,6 @@ def generator(samples, tags, bias, batch_size=BATCH_SIZE):
         for offset in range(0, len(samples), batch_size):            
 
             batch_samples, batch_tags = samples[offset:offset+batch_size], tags[offset:offset+batch_size]
-            
             images = []
             steering_angles = []
 
@@ -244,8 +246,13 @@ def validation_generator(samples, tags, batch_size=BATCH_SIZE):
 def make_model():
     '''
     Outputs the model that we will use to control the car and predict the steering angle
-    ideas from: https://github.com/ksakmann/CarND-BehavioralCloning/blob/master/drive.py
+    
+    Note l2 regularization seems to make the model train faster, however no improvement
 
+    ideas from: https://github.com/ksakmann/CarND-BehavioralCloning/blob/master/drive.py
+    And many trial and error attempts
+
+    changed normalization from x/255 - .5 to x/127.5 - 1.0, still haven't found the difference
     '''
     model = Sequential()
     #normalize and set input shape
@@ -268,11 +275,10 @@ def make_model():
     model.add(Dense(128) )
     model.add(Activation(ACTIVATION_FUNCTION))
     model.add(Dropout(0.5))
-
     
     model.add(Dense(128, activation=ACTIVATION_FUNCTION))
     
-    #output layer... important !
+    #output layer... important!
     model.add(Dense(1))
     
     model.compile(loss='mse', optimizer=Adam(lr=1e-4, epsilon=1e-08), metrics=['accuracy'])
@@ -361,6 +367,7 @@ def train_model():
     for i in range(3):
         images_temp,steering_angles_temp = load_train_data_folder_triples(i)
         if i == 1:
+            #skips recovery data because it messed things up
             continue
         image_paths.extend(images_temp)
         steering_angles.extend(steering_angles_temp)
@@ -369,9 +376,9 @@ def train_model():
     steering_angles = np.array(steering_angles)
 
     
-    EPOCHS = 15
+    EPOCHS = 8
     #model = make_model()    
-    model = load_model("model_24.h5")
+    model = load_model("model_Lucas5.h5")
 
     train_samples, validation_paths, test_samples, v_steering_angles = train_test_split(image_paths, steering_angles, test_size=0.1, random_state=42)
     
@@ -408,7 +415,7 @@ def train_model():
         if num_runs > EPOCHS:
             break
 
-    model.save("model_Lucas.h5" )
+    model.save("model_Lucas6.h5" )
     print( model.summary() )
     bing()     
 start = time.time()

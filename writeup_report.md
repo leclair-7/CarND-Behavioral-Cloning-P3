@@ -57,15 +57,15 @@ I decided to use the ELU activation function because the literature suggests it 
 
 #### 2. Attempts to reduce overfitting in the model
 
-Over fitting was reduced by adding drop out layers in various places (see architecture section). Another way over fitting was reduced was to tune the file upload process. That is, only 30% of the images with steering angle equal to zero were allowed to be uploaded. This made the data more balanced while reducing hard drive accesses.
+Over fitting was reduced by adding drop out layers in various places (see architecture section). Another way over fitting was reduced was the data augmentation was made to randomly distort images which led to a seemingly infinite number of images being send to the model.
 
 #### 3. Model parameter tuning
 
-The model used an Adam optimizer, with the learning rate 10**-4. This was found when a blog post said the first thing to try to improve machine learning is to lower the learning rate.
+The model used an Adam optimizer, with the learning rate reduced from 10**-3 to 10**-4. This was found when a blog post said the first thing to try to improve machine learning is to lower the learning rate.
 
 #### 4. Appropriate training data
 
-The training data used was the class supplied data which utilized the center, left, and right cameras. Each steering angle on the left had a steering correction number constant added to it, and on the right it was subtracted. Data was collected for recoveries (meaning the car gets close to driving into the lane or worse into the lake). One lap was drawn in the opposite direction to help with model generalization.
+The training data used was the class supplied data which utilized the center, left, and right cameras. Each steering angle on the left had a steering correction number constant added to it, and on the right it was subtracted. Data was collected for recoveries (meaning the car gets close to driving into the lane or worse into the lake). One lap was driven in the opposite direction to help with model generalization.
 
 ### Model Architecture and Training Strategy
 
@@ -73,7 +73,7 @@ The training data used was the class supplied data which utilized the center, le
 
 The first step was to use the convolutional network in the NVidia paper, “End to End Learning for Self-Driving Cars (NVidias)”. This model seemed appropriate because it answers the same question as this project's prompt. After training with the model it appeared to over fit tremendously, training times were slow, and most importantly, the car was driving into the lake.
 
-To gauge the model’s progress as it was training, I split the data into a 20% validation set / 80% training set. I found that the loss reached its minimum after about five epochs. When I ran train the model for many epochs, on the order of 40, I noticed that when the car was driving, it changed steering angles many times per second. This appears to be what over-fitting looks like for this task. The model was too complex (which goes hand-in-hand with over-fitting). As a result, I reduced model complexity by removing some layers and reducing other layers' sizes. Removing two of the convolutional layers greatly decreased training time. Parameter tuning involved copious amounts of trial and error. During the trial and error the image size was reduced to decrease training time, cropping was done to use the most relevant parts of the image, the road.
+To gauge the model’s progress as it was training, I split the data into a 10% validation set / 90% training set. I found that the loss reached its minimum after about five epochs. When I ran train the model for many epochs, on the order of 40, I noticed that when the car was driving, it changed steering angles many times per second. This appears to be what over-fitting looks like for this task. The model was too complex (which goes hand-in-hand with over-fitting). As a result, I reduced model complexity by removing some layers and reducing other layers' sizes. Removing two of the convolutional layers greatly decreased training time. Parameter tuning involved copious amounts of trial and error. During the trial and error the image size was reduced to decrease training time, cropping was done to use the most relevant parts of the image, the road.
 
 ![alt text][image5]
 
@@ -81,7 +81,7 @@ To combat the over-fitting, I added dropout layers.
 
 Then I lowered the training rate from 10^-3 to 10^-4. This made the car drive smoother and made a change in the number of epochs more noticeable.
 
-Initially the training runs that consisted of the class supplied data set resulted in satisfactory results that is, almost successful. However, the car touched the line after two different curves. After trying drop out layers in different places, epoch numbers, and pooling layers, I decided to do recovery laps. This consists of recording the car when it is in an undesirable place such as close to a lane marker, and then turning the car back to the center of the lane. This was done for two laps, and then I recorded one lap of the car going counterclockwise around the race course. This was to help the car generalize and also to make the curve drives smoother.
+Initially the training runs that consisted of the class supplied data set resulted in satisfactory results that is, almost successful. However, the car touched the line after two different curves. After trying drop out layers in different places, epoch numbers, and pooling layers, I decided to do recovery laps. This consists of recording the car when it is in an undesirable place such as close to a lane marker, and then turning the car back to the center of the lane. This was done for two laps, and then I recorded one lap of the car going counterclockwise around the race course. This was to help the car generalize and also to make the curve drives smoother. The recovery laps trained model failed on submission which led me on the seemingly more robust approach of randomly augmenting each image before it is sent to the model. This is described at the beginning of section 3.
 
 At the end of the process, the vehicle is able to drive autonomously around the track without leaving the road.
 
@@ -109,7 +109,7 @@ The final model architecture (created by the make_model() function in model.py) 
 
 To augment the data I randomly translated the image about the x axis and y axis), randomly cropped the image, randomly changed the brightness, and flipped half of the images. In total I had 7,444 images of the car driving counterclockwise. Surprisingly enough, this is less than the 24,109 image files in the given training data.
 
-Since most frames involve a steering angle = 0, the data at the outset was heavily biased toward making the car steer straight. This was corrected for by use of the cropping function which changes the steering angle based on how much it changed the input image. This lets the model learn how to steer curves synthetically. In my first submission, I decided to disregard about 70% of the image whose steering angles was 0. I then collected data/increased model complexity, used multiple weekends of effort. The first approach did not work except in very specific situations.  
+Since most frames involve a steering angle = 0, the data at the outset was heavily biased toward making the car steer straight. This was corrected for by use of the cropping function which changes the steering angle based on how much it changed the input image. This lets the model learn how to steer curves synthetically instead of the laborious task of collecting recovery data. Recovery data was attempter with keyboard controls and by using the mouse, neither of which worked. In my first submission, I decided to disregard about 70% of the image whose steering angles was 0. I then collected data/increased model complexity, used multiple weekends of effort. The first approach did not work except in very specific situations.  
 
 The dataset without the zero steering angles removed is displayed below. The advantage of changing the steering angle with respect to how the crop manipulation is generated is that the model learns more situations where it is close to the lane line.
 ![alt text][image4]
